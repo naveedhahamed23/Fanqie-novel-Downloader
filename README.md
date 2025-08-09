@@ -1,6 +1,8 @@
 # Tomato Novel Downloader
 
-基于参考代码修复的番茄小说下载器，支持GUI界面和命令行使用。
+基于
+https://github.com/Dlmily/Tomato-Novel-Downloader-Lite
+的番茄小说下载器，支持GUI界面和命令行使用。
 
 ## 🚀 主要修复内容
 
@@ -98,3 +100,21 @@ python tomato_novel_api.py test
 - 添加了线程安全机制
 - 改善了错误处理和用户体验
 - 保持了原有GUI功能的完整性
+
+## 🔄 自动更新与发布
+
+- 在 `version.py` 中维护当前版本号 `__version__`，并将 `__github_repo__` 设置为你的仓库（格式 `owner/repo`）。
+- 应用启动时会自动（可在设置中关闭）检查 GitHub Releases 的最新版本；也可在设置页点击“检查更新”。
+- 下载完成后将自动安装并重启。
+
+### GitHub Actions 自动发布
+
+本仓库提供工作流 `.github/workflows/release.yml`：
+- 推送形如 `v*` 的标签时，自动构建 Windows 可执行文件并上传到该 Release。
+- 也可在 Actions 页面手动触发工作流并指定 `tag`。
+
+推荐流程：
+1. 修改 `version.py` 的 `__version__` 为新版本，例如 `1.2.3`；
+2. 提交并打标签：`git tag v1.2.3 && git push origin v1.2.3`；
+3. 等待 Actions 构建并把 `TomatoNovelDownloader_v1.2.3_windows_x64.exe` 上传到 Release；
+4. 客户端会检测到新版本并提示更新。

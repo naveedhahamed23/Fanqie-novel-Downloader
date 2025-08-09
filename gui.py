@@ -10,7 +10,8 @@ from PIL import Image, ImageTk
 from io import BytesIO
 from tomato_novel_api import TomatoNovelAPI
 from ebooklib import epub
-# from updater import AutoUpdater, get_current_version  # Removed auto-update functionality
+from updater import AutoUpdater, get_current_version, check_and_notify_update
+from version import __version__, __github_repo__
 
 # 添加HEIC支持
 try:
@@ -51,8 +52,10 @@ class ModernNovelDownloaderGUI:
         self.search_results_data = []  # 存储搜索结果数据
         self.cover_images = {}  # 存储封面图片，防止被垃圾回收
         
-        # 初始化版本信息
-        self.current_version = "1.0.0"
+        # 初始化版本信息和自动更新
+        self.current_version = __version__
+        self.updater = AutoUpdater(__github_repo__, self.current_version)
+        self.updater.register_callback(self.on_update_event)
         
         # 配置文件路径
         self.config_file = "config.json"
@@ -77,6 +80,10 @@ class ModernNovelDownloaderGUI:
         
         # 检查已有的验证状态
         self.check_existing_verification()
+        
+        # 启动时自动检查更新
+        if self.config.get('auto_check_update', True):
+            self.root.after(1500, self.check_update_silent)
     
     def setup_fonts(self):
         """设置字体"""
@@ -525,7 +532,7 @@ class ModernNovelDownloaderGUI:
         # 版本信息卡片
         version_card = self.create_card(main_container, "📦 版本信息")
         
-        # 当前版本信息
+        # 当前版本信息与更新操作
         version_frame = tk.Frame(version_card, bg=self.colors['surface'])
         version_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -536,6 +543,31 @@ class ModernNovelDownloaderGUI:
                 font=self.fonts['body'], 
                 bg=self.colors['surface'], 
                 fg=version_color).pack(side=tk.LEFT)
+        
+        # 自动检查更新开关
+        self.auto_update_var = tk.BooleanVar(value=self.config.get('auto_check_update', True))
+        auto_check_btn = tk.Checkbutton(version_frame,
+                                        text="启动时自动检查更新",
+                                        variable=self.auto_update_var,
+                                        command=self.save_config,
+                                        font=self.fonts['body'],
+                                        bg=self.colors['surface'])
+        auto_check_btn.pack(side=tk.LEFT, padx=(20, 10))
+        
+        # 前往发布页按钮
+        releases_url = f"https://github.com/{__github_repo__}/releases/latest"
+        open_release_btn = self.create_button(version_frame,
+                                             "🌐 发布页",
+                                             lambda: webbrowser.open(releases_url),
+                                             self.colors['secondary'])
+        open_release_btn.pack(side=tk.RIGHT)
+        
+        # 检查更新按钮
+        check_update_btn = self.create_button(version_frame,
+                                             "🔄 检查更新",
+                                             self.check_update_now,
+                                             self.colors['primary'])
+        check_update_btn.pack(side=tk.RIGHT, padx=(0, 10))
         
         # 关于信息卡片
         about_card = self.create_card(main_container, "ℹ️ 关于")
@@ -586,7 +618,8 @@ class ModernNovelDownloaderGUI:
                     'save_path': os.getcwd(),
                     'theme_color': self.colors['primary'],
                     'file_format': 'txt',
-                    'download_mode': 'full'
+                    'download_mode': 'full',
+                    'auto_check_update': True
                 }
         except Exception as e:
             print(f"加载配置失败: {e}")
@@ -594,7 +627,8 @@ class ModernNovelDownloaderGUI:
                 'save_path': os.getcwd(),
                 'theme_color': self.colors['primary'],
                 'file_format': 'txt',
-                'download_mode': 'full'
+                'download_mode': 'full',
+                'auto_check_update': True
             }
     
     def save_config(self):
@@ -604,7 +638,8 @@ class ModernNovelDownloaderGUI:
                 'save_path': self.save_path_entry.get() if hasattr(self, 'save_path_entry') else os.getcwd(),
                 'theme_color': self.colors['primary'],
                 'file_format': self.format_var.get() if hasattr(self, 'format_var') else 'txt',
-                'download_mode': self.mode_var.get() if hasattr(self, 'mode_var') else 'full'
+                'download_mode': self.mode_var.get() if hasattr(self, 'mode_var') else 'full',
+                'auto_check_update': self.auto_update_var.get() if hasattr(self, 'auto_update_var') else True
             }
             
             with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -2462,6 +2497,132 @@ class ModernNovelDownloaderGUI:
             self.update_verification_status("已保存验证令牌 ✓", self.colors['success'])
         else:
             self.update_verification_status("未验证 (如遇到403/401错误时需要验证)", self.colors['text_secondary'])
+
+    def check_update_silent(self):
+        """在后台静默检查更新"""
+        def notify(update_info):
+            if not update_info:
+                return
+            self.root.after(0, lambda: self._prompt_update(update_info))
+        try:
+            check_and_notify_update(self.updater, notify)
+        except Exception as e:
+            print(f"静默检查更新失败: {e}")
+
+    def check_update_now(self):
+        """手动检查更新（带提示）"""
+        def worker():
+            try:
+                update_info = self.updater.check_for_updates(force=True)
+                if update_info:
+                    self.root.after(0, lambda: self._prompt_update(update_info))
+                else:
+                    self.root.after(0, lambda: messagebox.showinfo("检查更新", "当前已是最新版本"))
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("检查更新失败", str(e)))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _prompt_update(self, update_info):
+        """弹窗提示用户更新"""
+        ver = update_info.get('version', '?')
+        body = update_info.get('body', '').strip()
+        msg = f"发现新版本 v{ver}，是否现在更新？"
+        if body:
+            msg += f"\n\n更新内容:\n{body[:800]}"  # 限制显示长度
+        if messagebox.askyesno("发现新版本", msg):
+            self._start_update(update_info)
+
+    def _start_update(self, update_info):
+        """开始下载并安装更新（带进度窗口）"""
+        # 创建进度窗口
+        self._create_update_window()
+        
+        def progress_callback(current, total):
+            percent = 0
+            if total > 0:
+                percent = int(current * 100 / total)
+            self._update_download_progress(percent, current, total)
+        
+        def worker():
+            file_path = self.updater.download_update(update_info, progress_callback=progress_callback)
+            if not file_path:
+                self.root.after(0, lambda: self._set_update_status("下载失败", error=True))
+                return
+            self.root.after(0, lambda: self._set_update_status("下载完成，正在安装..."))
+            ok = self.updater.install_update(file_path, restart=True)
+            if not ok:
+                self.root.after(0, lambda: self._set_update_status("安装失败", error=True))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _create_update_window(self):
+        if hasattr(self, 'update_window') and self.update_window and tk.Toplevel.winfo_exists(self.update_window):
+            return
+        self.update_window = tk.Toplevel(self.root)
+        self.update_window.title("更新中")
+        self.update_window.geometry("420x160")
+        self.update_window.resizable(False, False)
+        self.update_window.grab_set()
+        
+        frame = tk.Frame(self.update_window, bg=self.colors['surface'])
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        self.update_status_var = tk.StringVar(value="正在准备下载...")
+        status_lbl = tk.Label(frame, textvariable=self.update_status_var, font=self.fonts['body'], bg=self.colors['surface'], fg=self.colors['text_primary'])
+        status_lbl.pack(anchor='w')
+        
+        self.update_progress = tk.IntVar(value=0)
+        self.update_progressbar = ttk.Progressbar(frame, orient='horizontal', mode='determinate', length=360, variable=self.update_progress, style='Modern.Horizontal.TProgressbar')
+        self.update_progressbar.pack(pady=(12, 0))
+        
+        self.update_detail_var = tk.StringVar(value="0%")
+        detail_lbl = tk.Label(frame, textvariable=self.update_detail_var, font=self.fonts['small'], bg=self.colors['surface'], fg=self.colors['text_secondary'])
+        detail_lbl.pack(anchor='e', fill=tk.X)
+
+    def _update_download_progress(self, percent, current, total):
+        if hasattr(self, 'update_progress'):
+            self.update_progress.set(percent)
+        if hasattr(self, 'update_detail_var'):
+            if total > 0:
+                self.update_detail_var.set(f"{percent}%  ({current // 1024} KB / {total // 1024} KB)")
+            else:
+                self.update_detail_var.set(f"{current // 1024} KB")
+        if hasattr(self, 'update_status_var'):
+            self.update_status_var.set("正在下载更新...")
+        self.root.update_idletasks()
+
+    def _set_update_status(self, text, error=False):
+        if hasattr(self, 'update_status_var'):
+            self.update_status_var.set(text)
+        if error:
+            try:
+                messagebox.showerror("更新失败", text)
+            except Exception:
+                pass
+
+    def on_update_event(self, event, data):
+        """处理更新过程中的事件回调"""
+        if event == 'download_start':
+            self._create_update_window()
+            self._set_update_status("开始下载更新...")
+        elif event == 'download_progress':
+            cur = data.get('current', 0)
+            total = data.get('total', 0)
+            percent = data.get('percent', 0)
+            self._update_download_progress(int(percent), cur, total)
+        elif event == 'download_complete':
+            self._set_update_status("下载完成，准备安装...")
+        elif event == 'download_error':
+            self._set_update_status(f"下载失败: {data}", error=True)
+        elif event == 'install_start':
+            self._set_update_status("正在安装更新...")
+        elif event == 'install_error':
+            self._set_update_status(f"安装失败: {data}", error=True)
+        elif event == 'install_complete':
+            # 某些平台安装成功后会退出当前程序并重启
+            try:
+                messagebox.showinfo("更新完成", "更新已安装，程序将重启")
+            except Exception:
+                pass
 
 # 主程序入口
 if __name__ == "__main__":

@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.2.3). If provided, a release will be created/updated.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Compute version from tag and sync version.py
+        id: version
+        shell: pwsh
+        run: |
+          $tag = if ($env:GITHUB_REF.StartsWith('refs/tags/')) { $env:GITHUB_REF_NAME } elseif ('${{ github.event.inputs.tag }}' -ne '') { '${{ github.event.inputs.tag }}' } else { '' }
+          if ($tag -eq '') {
+            $appVersion = python - << 'PY'
+import version
+print(version.__version__)
+PY
+            $appVersion = $appVersion.Trim()
+          } else {
+            $appVersion = $tag.TrimStart('v','V')
+            (Get-Content version.py -Raw) -replace '__version__\s*=\s*".*?"', "__version__ = \"$appVersion\"" | Set-Content version.py -Encoding UTF8
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$appVersion"
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          python build_app.py
+
+      - name: Rename artifact with version
+        shell: pwsh
+        run: |
+          $exe = "dist/TomatoNovelDownloader.exe"
+          if (Test-Path $exe) {
+            $new = "dist/TomatoNovelDownloader_v${{ steps.get_version.outputs.version }}_windows_x64.exe"
+            Move-Item $exe $new -Force
+          } else {
+            Write-Error "Executable not found: $exe"
+          }
+
+      - name: Upload artifact (CI)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TomatoNovelDownloader-windows
+          path: dist/*.exe
+
+      - name: Create/Update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || (github.event.inputs.tag != '')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
+          name: Tomato Novel Downloader v${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
