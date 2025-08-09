@@ -12,7 +12,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('version.py', '.'),
+        # ('version.py', '.'),  # Removed version.py file
     ],
     hiddenimports=[
         'bs4',
