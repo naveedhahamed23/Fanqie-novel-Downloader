@@ -16,7 +16,7 @@ class Config:
     
     # 认证配置
     AUTH_TOKEN = "wcnmd91jb"
-    SERVER_URL = "https://dlbkltos.s7123.xyz:5080/api/sources"
+    SERVER_URL = "https://dlbkltos.s7123.xyz:5080"
     
     # API端点配置
     API_ENDPOINTS = []
@@ -29,7 +29,7 @@ class Config:
         "token": None,
         "max_batch_size": 290,
         "timeout": 10,
-        "enabled": True
+        "enabled": False
     }
     
     # 用户代理配置
@@ -77,13 +77,36 @@ class Config:
         """更新API端点列表"""
         cls.API_ENDPOINTS = endpoints
     
-    @classmethod
-    def update_batch_config(cls, config):
-        """更新批量下载配置"""
-        cls.BATCH_CONFIG.update(config)
 
-# 为了兼容旧代码，提供CONFIG变量
-CONFIG = Config.get_config_dict()
+# 为了兼容旧代码，提供动态CONFIG变量
+class ConfigDict(dict):
+    """Dynamic config dict that always reflects current Config values"""
+    def __getitem__(self, key):
+        if key == "api_endpoints":
+            return Config.API_ENDPOINTS
+        elif key == "batch_config":
+            return Config.BATCH_CONFIG
+        else:
+            return Config.get_config_dict()[key]
+    
+    def __setitem__(self, key, value):
+        if key == "api_endpoints":
+            Config.API_ENDPOINTS = value
+        elif key == "batch_config":
+            Config.BATCH_CONFIG = value
+        else:
+            # Update the Config class attribute if it exists
+            attr_name = key.upper()
+            if hasattr(Config, attr_name):
+                setattr(Config, attr_name, value)
+    
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+CONFIG = ConfigDict()
 
 # 导出主要的配置对象
 __all__ = ['Config', 'CONFIG']

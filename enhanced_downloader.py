@@ -40,10 +40,7 @@ except ImportError as e:
         "server_url": "https://dlbkltos.s7123.xyz:5080/api/sources",
         "api_endpoints": [],
         "batch_config": {
-            "name": "qyuing",
-            "enabled": True,
-            "max_batch_size": 290,
-            "timeout": 10
+            "enabled": False
         }
     }
 
@@ -51,6 +48,21 @@ except ImportError as e:
 print_lock = threading.Lock()
 
 class EnhancedNovelDownloader:
+    """增强的小说下载器"""
+    
+    # 备用用户代理列表
+    FALLBACK_USER_AGENTS = {
+        'chrome': [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ],
+        'edge': [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0'
+        ]
+    }
+    
     def __init__(self, progress_callback: Optional[Callable] = None):
         """
         初始化增强型下载器
@@ -114,10 +126,15 @@ class EnhancedNovelDownloader:
         browsers = ['chrome', 'edge']
         browser = random.choice(browsers)
         
-        if browser == 'chrome':
-            user_agent = UserAgent().chrome
-        else:
-            user_agent = UserAgent().edge
+        try:
+            if browser == 'chrome':
+                user_agent = UserAgent().chrome
+            else:
+                user_agent = UserAgent().edge
+        except Exception as e:
+            # fake_useragent 失败时使用备用用户代理
+            print(f"fake_useragent获取用户代理失败，使用备用方案: {e}")
+            user_agent = random.choice(self.FALLBACK_USER_AGENTS[browser])
         
         return {
             "User-Agent": user_agent,
@@ -149,21 +166,8 @@ class EnhancedNovelDownloader:
                 
                 for source in sources:
                     if source["enabled"]:
-                        if source["name"] == CONFIG["batch_config"]["name"]:
-                            base_url = source["single_url"].split('?')[0]
-                            batch_endpoint = base_url.split('/')[-1]
-                            base_url = base_url.rsplit('/', 1)[0] if '/' in base_url else base_url
-                            
-                            CONFIG["batch_config"]["base_url"] = base_url
-                            CONFIG["batch_config"]["batch_endpoint"] = f"/{batch_endpoint}"
-                            CONFIG["batch_config"]["token"] = source.get("token", "")
-                            CONFIG["batch_config"]["enabled"] = True
-                        else:
-                            endpoint = {"url": source["single_url"], "name": source["name"]}
-                            if source["name"] == "fanqie_sdk":
-                                endpoint["params"] = source.get("params", {})
-                                endpoint["data"] = source.get("data", {})
-                            CONFIG["api_endpoints"].append(endpoint)
+                        endpoint = {"url": source["single_url"], "name": source["name"]}
+                        CONFIG["api_endpoints"].append(endpoint)
                 
                 self.log("成功从服务器获取API列表!")
                 return True
@@ -200,42 +204,6 @@ class EnhancedNovelDownloader:
             })
         return chapters
 
-    def batch_download_chapters(self, item_ids, headers):
-        """批量下载章节内容"""
-        if not CONFIG["batch_config"]["enabled"] or CONFIG["batch_config"]["name"] != "qyuing":
-            self.log("批量下载功能仅限qyuing API")
-            return None
-            
-        batch_config = CONFIG["batch_config"]
-        url = f"{batch_config['base_url']}{batch_config['batch_endpoint']}"
-        
-        try:
-            batch_headers = headers.copy()
-            if batch_config["token"]:
-                batch_headers["token"] = batch_config["token"]
-            batch_headers["Content-Type"] = "application/json"
-            
-            payload = {"item_ids": item_ids}
-            response = self.make_request(
-                url,
-                headers=batch_headers,
-                method='POST',
-                data=json.dumps(payload),
-                timeout=batch_config["timeout"],
-                verify=False
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, dict) and "data" in data:
-                    return data["data"]
-                return data
-            else:
-                self.log(f"批量下载失败，状态码: {response.status_code}")
-                return None
-        except Exception as e:
-            self.log(f"批量下载异常！")
-            return None
 
     def process_chapter_content(self, content):
         """处理章节内容"""
@@ -283,36 +251,7 @@ class EnhancedNovelDownloader:
             try:
                 time.sleep(random.uniform(0.1, 0.5))
                 
-                if api_name == "fanqie_sdk":
-                    params = endpoint.get("params", {"sdk_type": "4", "novelsdk_aid": "638505"})
-                    data = {
-                        "item_id": chapter_id,
-                        "need_book_info": 1,
-                        "show_picture": 1,
-                        "sdk_type": 1
-                    }
-                    
-                    response = self.make_request(
-                        current_endpoint,
-                        headers=headers.copy(),
-                        params=params,
-                        method='POST',
-                        data=data,
-                        timeout=CONFIG["request_timeout"],
-                        verify=False
-                    )
-                    
-                    if response and response.status_code == 200:
-                        try:
-                            data = response.json()
-                            content = data.get("data", {}).get("content", "")
-                            if content:
-                                processed = self.process_chapter_content(content)
-                                return data.get("data", {}).get("title", ""), processed
-                        except json.JSONDecodeError:
-                            continue
-
-                elif api_name == "fqweb":
+                if api_name == "fqweb":
                     url = f"http://fqweb.jsj66.com/content?item_id={chapter_id}"
                     
                     response = self.make_request(
@@ -330,54 +269,6 @@ class EnhancedNovelDownloader:
                                 if content:
                                     processed = self.process_chapter_content(content)
                                     return "", processed
-                        except:
-                            continue
-
-                elif api_name == "qyuing":
-                    # 修复URL格式化问题
-                    if "{chapter_id}" in current_endpoint:
-                        url = current_endpoint.format(chapter_id=chapter_id)
-                    else:
-                        url = f"{current_endpoint}?chapter_id={chapter_id}"
-                    
-                    response = self.make_request(
-                        url,
-                        headers=headers.copy(),
-                        timeout=CONFIG["request_timeout"],
-                        verify=False
-                    )
-                    
-                    if response and response.status_code == 200:
-                        try:
-                            data = response.json()
-                            if data.get("code") == 0:
-                                content = data.get("data", {}).get(chapter_id, {}).get("content", "")
-                                if content:
-                                    return "", self.process_chapter_content(content)
-                        except:
-                            continue
-
-                elif api_name == "lsjk":
-                    # 修复URL格式化问题
-                    if "{chapter_id}" in current_endpoint:
-                        url = current_endpoint.format(chapter_id=chapter_id)
-                    else:
-                        url = f"{current_endpoint}?chapter_id={chapter_id}"
-                    
-                    response = self.make_request(
-                        url,
-                        headers=headers.copy(),
-                        timeout=CONFIG["request_timeout"],
-                        verify=False
-                    )
-                    
-                    if response and response.text:
-                        try:
-                            paragraphs = re.findall(r'<p idx="\d+">(.*?)</p>', response.text)
-                            cleaned = "\n".join(p.strip() for p in paragraphs if p.strip())
-                            formatted = '\n'.join('    ' + line if line.strip() else line 
-                                                for line in cleaned.split('\n'))
-                            return "", formatted
                         except:
                             continue
 
@@ -690,53 +581,6 @@ class EnhancedNovelDownloader:
             success_count = 0
             failed_chapters = []
             lock = threading.Lock()
-
-            # 批量下载模式
-            if CONFIG["batch_config"]["enabled"] and CONFIG["batch_config"]["name"] == "qyuing":
-                self.update_progress(30, "启用qyuing API批量下载模式...")
-                batch_size = CONFIG["batch_config"]["max_batch_size"]
-                
-                total_batches = (len(todo_chapters) + batch_size - 1) // batch_size
-                for i in range(0, len(todo_chapters), batch_size):
-                    if self.is_cancelled:
-                        return
-                        
-                    batch = todo_chapters[i:i + batch_size]
-                    item_ids = [chap["id"] for chap in batch]
-                    
-                    current_batch = i // batch_size + 1
-                    progress = 30 + (current_batch / total_batches) * 40  # 30%-70%
-                    self.update_progress(progress, f"批量下载第 {current_batch}/{total_batches} 批")
-                    
-                    batch_results = self.batch_download_chapters(item_ids, headers)
-                    if not batch_results:
-                        self.log(f"第 {current_batch} 批下载失败")
-                        failed_chapters.extend(batch)
-                        continue
-                    
-                    for chap in batch:
-                        content = batch_results.get(chap["id"], "")
-                        if isinstance(content, dict):
-                            content = content.get("content", "")
-                        
-                        if content:
-                            processed = self.process_chapter_content(content)
-                            with lock:
-                                self.chapter_results[chap["index"]] = {
-                                    "base_title": chap["title"],
-                                    "api_title": "",
-                                    "content": processed
-                                }
-                                self.downloaded.add(chap["id"])
-                                success_count += 1
-                        else:
-                            with lock:
-                                failed_chapters.append(chap)
-                
-                todo_chapters = failed_chapters.copy()
-                failed_chapters = []
-                self.write_downloaded_chapters_in_order(output_file_path, name, author_name, description, file_format, enhanced_info)
-                self.save_status(save_path, self.downloaded)
 
             # 单章下载模式
             if todo_chapters:

@@ -5,11 +5,12 @@ import os
 import time
 import json
 import requests
+import webbrowser
 from PIL import Image, ImageTk
 from io import BytesIO
 from tomato_novel_api import TomatoNovelAPI
 from ebooklib import epub
-from updater import AutoUpdater, get_current_version
+# from updater import AutoUpdater, get_current_version  # Removed auto-update functionality
 
 # 添加HEIC支持
 try:
@@ -46,13 +47,12 @@ class ModernNovelDownloaderGUI:
         # 下载状态
         self.is_downloading = False
         self.start_time = None
-        self.api = TomatoNovelAPI()
+        self.api = None  # 延迟初始化，避免阻塞界面
         self.search_results_data = []  # 存储搜索结果数据
         self.cover_images = {}  # 存储封面图片，防止被垃圾回收
         
-        # 初始化自动更新器
-        self.current_version = get_current_version()
-        self.updater = AutoUpdater(self.current_version)
+        # 初始化版本信息
+        self.current_version = "1.0.0"
         
         # 配置文件路径
         self.config_file = "config.json"
@@ -74,6 +74,9 @@ class ModernNovelDownloaderGUI:
         
         # 创建UI
         self.create_widgets()
+        
+        # 检查已有的验证状态
+        self.check_existing_verification()
     
     def setup_fonts(self):
         """设置字体"""
@@ -489,49 +492,50 @@ class ModernNovelDownloaderGUI:
                                            self.colors['primary'])
         reset_theme_btn.pack(side=tk.RIGHT)
         
-        # 更新设置卡片
-        update_card = self.create_card(main_container, "🔄 自动更新")
+        # 验证设置卡片
+        verification_card = self.create_card(main_container, "🔒 人机验证")
+        
+        # 验证状态显示
+        verification_status_frame = tk.Frame(verification_card, bg=self.colors['surface'])
+        verification_status_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.verification_status_label = tk.Label(verification_status_frame, 
+                                                 text="状态: 未验证 (如遇到403/401错误时需要验证)", 
+                                                 font=self.fonts['body'],
+                                                 bg=self.colors['surface'],
+                                                 fg=self.colors['text_secondary'])
+        self.verification_status_label.pack(anchor='w')
+        
+        # 验证按钮
+        verification_buttons_frame = tk.Frame(verification_card, bg=self.colors['surface'])
+        verification_buttons_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        manual_verify_btn = self.create_button(verification_buttons_frame, 
+                                              "🔒 手动验证", 
+                                              self.manual_verification,
+                                              self.colors['warning'])
+        manual_verify_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        clear_token_btn = self.create_button(verification_buttons_frame, 
+                                           "🧹 清除验证", 
+                                           self.clear_verification_token,
+                                           self.colors['error'])
+        clear_token_btn.pack(side=tk.LEFT)
+        
+        # 版本信息卡片
+        version_card = self.create_card(main_container, "📦 版本信息")
         
         # 当前版本信息
-        version_frame = tk.Frame(update_card, bg=self.colors['surface'])
+        version_frame = tk.Frame(version_card, bg=self.colors['surface'])
         version_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # 获取详细版本信息
-        try:
-            import version
-            version_info = version.get_version_info()
-            is_dev = version.is_development_version()
-            
-            if is_dev:
-                version_text = f"当前版本: {self.current_version} (开发版本)"
-                version_color = self.colors['warning']
-            else:
-                version_text = f"当前版本: {self.current_version} (编译版本)"
-                version_color = self.colors['success']
-        except:
-            version_text = f"当前版本: {self.current_version}"
-            version_color = self.colors['text_primary']
+        version_text = f"当前版本: {self.current_version}"
+        version_color = self.colors['text_primary']
         
         tk.Label(version_frame, text=version_text, 
                 font=self.fonts['body'], 
                 bg=self.colors['surface'], 
                 fg=version_color).pack(side=tk.LEFT)
-        
-        # 更新按钮
-        update_buttons_frame = tk.Frame(update_card, bg=self.colors['surface'])
-        update_buttons_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        check_update_btn = self.create_button(update_buttons_frame, 
-                                             "🔍 检查更新", 
-                                             self.check_for_updates,
-                                             self.colors['primary'])
-        check_update_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        auto_update_btn = self.create_button(update_buttons_frame, 
-                                           "⚡ 自动更新", 
-                                           self.auto_update,
-                                           self.colors['success'])
-        auto_update_btn.pack(side=tk.LEFT)
         
         # 关于信息卡片
         about_card = self.create_card(main_container, "ℹ️ 关于")
@@ -620,13 +624,6 @@ class ModernNovelDownloaderGUI:
         self.save_config()
         messagebox.showinfo("主题更改", "主题色彩已更改并保存，重启应用后生效")
     
-    def check_for_updates(self):
-        """手动检查更新"""
-        self.updater.check_and_update_async(force_check=True)
-    
-    def auto_update(self):
-        """自动更新"""
-        self.updater.check_and_update_async(force_check=False)
     
     def search_novels(self):
         """搜索小说"""
@@ -710,6 +707,11 @@ class ModernNovelDownloaderGUI:
         """搜索小说线程函数"""
         try:
             self.search_btn.config(state=tk.DISABLED, text="搜索中...")
+            
+            # 确保API已初始化
+            if self.api is None:
+                self.initialize_api()
+                
             result = self.api.search_novels(keyword)
             
             if result and result.get('success') and result.get('data'):
@@ -759,9 +761,9 @@ class ModernNovelDownloaderGUI:
                 else:
                     self.root.after(0, lambda: messagebox.showwarning("搜索失败", "未找到相关小说"))
             else:
-                self.root.after(0, lambda: messagebox.showwarning("搜索失败", "搜索失败或未返回有效结果"))
+                self.root.after(0, lambda: self.check_and_handle_api_error("搜索失败或未返回有效结果"))
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("错误", f"搜索失败: {str(e)}"))
+            self.root.after(0, lambda: self.check_and_handle_api_error(f"搜索失败: {str(e)}"))
         finally:
             self.root.after(0, lambda: self.search_btn.config(state=tk.NORMAL, text="🔍 搜索"))
     
@@ -1129,6 +1131,10 @@ class ModernNovelDownloaderGUI:
     def _show_book_details_thread(self, book_id):
         """显示书籍详情线程函数"""
         try:
+            # 确保API已初始化
+            if self.api is None:
+                self.initialize_api()
+                
             info_result = self.api.get_novel_info(book_id)
             details_result = self.api.get_book_details(book_id)
             
@@ -1496,6 +1502,10 @@ class ModernNovelDownloaderGUI:
     def _download_thread(self, book_id, save_path, file_format, mode):
         """下载线程函数 - 完全集成enhanced_downloader.py的高速下载功能"""
         try:
+            # 确保API已初始化
+            if self.api is None:
+                self.initialize_api()
+            
             # 设置进度回调
             def gui_progress_callback(progress, message):
                 """GUI进度回调，将下载器的回调转发到GUI"""
@@ -1542,8 +1552,8 @@ class ModernNovelDownloaderGUI:
                 downloader = self.api.enhanced_downloader
                 downloader.progress_callback = gui_progress_callback
                 
-                # 在线程中运行下载
-                downloader.run_download(book_id, save_path, file_format)
+                # 在线程中运行下载，传递GUI验证回调
+                downloader.run_download(book_id, save_path, file_format, gui_callback=self.api.gui_verification_callback)
                 
                 # 检查是否取消
                 if downloader.is_cancelled:
@@ -1564,6 +1574,9 @@ class ModernNovelDownloaderGUI:
                 chapter_range = None
                 def get_range():
                     nonlocal chapter_range
+                    # 确保API已初始化
+                    if self.api is None:
+                        self.initialize_api()
                     # 获取章节总数
                     details_result = self.api.get_book_details(book_id)
                     if details_result and details_result.get('data', {}).get('allItemIds'):
@@ -1608,7 +1621,7 @@ class ModernNovelDownloaderGUI:
                 
         except Exception as e:
             error_msg = str(e)
-            self.root.after(0, lambda: messagebox.showerror("下载失败", error_msg))
+            self.root.after(0, lambda: self.check_and_handle_api_error(f"下载失败: {error_msg}"))
             self.root.after(0, lambda: self.log(f"下载失败: {error_msg}"))
         finally:
             # 清理进度回调
@@ -2008,6 +2021,447 @@ class ModernNovelDownloaderGUI:
         """下载完成后的清理工作"""
         self.is_downloading = False
         self.download_btn.config(state=tk.NORMAL, bg=self.colors['success'], text="🚀 开始下载")
+    
+    def initialize_api(self):
+        """初始化API，只在需要时调用"""
+        if self.api is None:
+            # 创建GUI验证码处理回调
+            def gui_verification_callback(captcha_url):
+                """在GUI中处理验证码输入"""
+                # 创建一个临时变量存储结果
+                result = {'token': None}
+                
+                # 创建一个事件等待对话框完成
+                import threading
+                event = threading.Event()
+                
+                def show_dialog():
+                    try:
+                        # 创建验证码对话框
+                        self._create_captcha_dialog_for_api(captcha_url, result, event)
+                    except Exception as e:
+                        print(f"Error showing captcha dialog: {e}")
+                        event.set()
+                
+                # 在主线程中显示对话框
+                if threading.current_thread() is threading.main_thread():
+                    show_dialog()
+                else:
+                    self.root.after(0, show_dialog)
+                    event.wait(timeout=300)  # 等待5分钟
+                
+                return result.get('token', '')
+            
+            # 创建API实例，传入GUI回调
+            self.api = TomatoNovelAPI(gui_verification_callback)
+        return self.api
+    
+    def check_and_handle_api_error(self, error_message=""):
+        """检查API错误并提供解决方案"""
+        # 检查错误消息中是否包含验证相关的关键词
+        verification_keywords = ['403', 'FORBIDDEN', 'UNAUTHORIZED', '401', '验证', 'captcha', 'verification']
+        needs_verification = any(keyword.lower() in error_message.lower() for keyword in verification_keywords)
+        
+        if needs_verification:
+            # 显示验证码解决方案对话框
+            self.show_verification_solution_dialog(error_message)
+        else:
+            # 显示一般错误对话框
+            messagebox.showerror("操作失败", f"操作失败：{error_message}\n\n如果持续出现问题，可能需要进行验证。")
+    
+    def show_verification_solution_dialog(self, error_message):
+        """显示验证解决方案对话框"""
+        result = messagebox.askyesno(
+            "需要验证", 
+            f"操作失败，可能需要进行人机验证：\n\n{error_message}\n\n是否现在进行验证？",
+            icon='warning'
+        )
+        
+        if result:
+            self.show_captcha_dialog()
+    
+    def show_captcha_dialog(self):
+        """显示验证码对话框"""
+        try:
+            from network import NetworkManager
+            network_manager = NetworkManager()
+            base_url = network_manager._get_server_base()
+            captcha_url = f"{base_url}/api/get-captcha-challenge"
+            
+            # 获取验证码URL
+            headers = network_manager.get_headers()
+            headers.update({
+                'X-Auth-Token': network_manager.config.AUTH_TOKEN,
+                'Content-Type': 'application/json'
+            })
+            
+            challenge_res = network_manager.make_request(captcha_url, headers=headers, timeout=10)
+            if challenge_res and challenge_res.status_code == 200:
+                challenge_data = challenge_res.json()
+                verification_url = challenge_data.get("challenge_url")
+                
+                if verification_url:
+                    self._create_captcha_dialog(verification_url)
+                else:
+                    messagebox.showwarning("验证失败", "无法获取验证码URL")
+            else:
+                messagebox.showerror("网络错误", "无法连接到验证服务器")
+                
+        except Exception as e:
+            messagebox.showerror("验证码获取失败", f"获取验证码时出错: {str(e)}")
+    
+    def _create_captcha_dialog_for_api(self, verification_url, result, event):
+        """为API初始化创建验证码对话框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("🔒 API初始化需要验证")
+        dialog.geometry("600x450")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (450 // 2)
+        dialog.geometry(f"600x450+{x}+{y}")
+        
+        # 主容器
+        main_frame = tk.Frame(dialog, bg=self.colors['background'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # 标题
+        title_frame = tk.Frame(main_frame, bg=self.colors['primary'], height=60)
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        title_frame.pack_propagate(False)
+        
+        title_label = tk.Label(title_frame, 
+                              text="🔒 API需要验证", 
+                              font=self.fonts['subtitle'],
+                              bg=self.colors['primary'],
+                              fg='white')
+        title_label.pack(expand=True)
+        
+        # 说明文本
+        info_frame = tk.Frame(main_frame, bg=self.colors['surface'])
+        info_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        info_text = """获取下载服务器API列表需要进行人机验证。
+请按照以下步骤操作：
+
+1. 点击下方"打开验证页面"按钮
+2. 在浏览器中完成验证
+3. 复制获得的验证令牌
+4. 粘贴到下方输入框并确认"""
+        
+        info_label = tk.Label(info_frame, 
+                            text=info_text,
+                            font=self.fonts['body'],
+                            bg=self.colors['surface'],
+                            fg=self.colors['text_primary'],
+                            justify=tk.LEFT)
+        info_label.pack(padx=15, pady=10)
+        
+        # 验证URL按钮
+        url_frame = tk.Frame(main_frame, bg=self.colors['background'])
+        url_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        open_btn = self.create_button(url_frame,
+                                     "🌐 打开验证页面",
+                                     lambda: webbrowser.open(verification_url),
+                                     self.colors['primary'])
+        open_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        copy_btn = self.create_button(url_frame,
+                                     "📋 复制验证链接",
+                                     lambda: self._copy_to_clipboard(verification_url),
+                                     self.colors['secondary'])
+        copy_btn.pack(side=tk.LEFT)
+        
+        # 验证令牌输入
+        token_frame = tk.Frame(main_frame, bg=self.colors['background'])
+        token_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(token_frame,
+                text="验证令牌:",
+                font=self.fonts['body'],
+                bg=self.colors['background'],
+                fg=self.colors['text_primary']).pack(side=tk.LEFT)
+        
+        token_entry = tk.Entry(token_frame,
+                             font=self.fonts['body'],
+                             bg='white',
+                             fg=self.colors['text_primary'],
+                             relief=tk.FLAT,
+                             bd=1,
+                             highlightthickness=1,
+                             highlightcolor=self.colors['primary'])
+        token_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+        
+        # 按钮框架
+        button_frame = tk.Frame(main_frame, bg=self.colors['background'])
+        button_frame.pack(fill=tk.X)
+        
+        def confirm_verification():
+            token = token_entry.get().strip()
+            if not token:
+                messagebox.showwarning("输入错误", "请输入验证令牌")
+                return
+            
+            # 保存token到环境变量
+            os.environ["TOMATO_VERIFICATION_TOKEN"] = token
+            result['token'] = token
+            dialog.destroy()
+            event.set()
+            messagebox.showinfo("验证成功", "🎉 验证令牌已保存，API初始化继续...")
+        
+        def skip_verification():
+            result['token'] = ''
+            dialog.destroy()
+            event.set()
+            messagebox.showwarning("跳过验证", "跳过验证可能导致部分下载功能不可用")
+        
+        confirm_btn = self.create_button(button_frame,
+                                        "✅ 确认验证",
+                                        confirm_verification,
+                                        self.colors['success'])
+        confirm_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        skip_btn = self.create_button(button_frame,
+                                     "⏭️ 跳过验证",
+                                     skip_verification,
+                                     self.colors['warning'])
+        skip_btn.pack(side=tk.LEFT)
+        
+        # 绑定回车键
+        token_entry.bind('<Return>', lambda e: confirm_verification())
+        
+        # 窗口关闭处理
+        def on_close():
+            result['token'] = ''
+            dialog.destroy()
+            event.set()
+        
+        dialog.protocol("WM_DELETE_WINDOW", on_close)
+        
+        # 设置焦点
+        token_entry.focus_set()
+    
+    def _create_captcha_dialog(self, verification_url):
+        """创建验证码对话框（用于手动验证）"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("🔒 需要人机验证")
+        dialog.geometry("500x400")
+        dialog.configure(bg=self.colors['background'])
+        dialog.resizable(False, False)
+        
+        # 设置对话框为模态
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # 标题
+        title_frame = tk.Frame(dialog, bg=self.colors['primary'], height=60)
+        title_frame.pack(fill=tk.X)
+        title_frame.pack_propagate(False)
+        
+        title_label = tk.Label(title_frame, 
+                              text="🔒 安全验证", 
+                              font=self.fonts['title'],
+                              bg=self.colors['primary'], 
+                              fg='white')
+        title_label.pack(expand=True)
+        
+        # 内容区域
+        content_frame = tk.Frame(dialog, bg=self.colors['surface'])
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # 说明文本
+        info_text = """为了保护服务器安全，需要进行人机验证。
+
+请按照以下步骤操作：
+1. 点击下方"打开验证页面"按钮
+2. 在浏览器中完成验证
+3. 复制获得的验证令牌
+4. 粘贴到下方输入框中
+5. 点击"确认"按钮"""
+        
+        info_label = tk.Label(content_frame, 
+                             text=info_text,
+                             font=self.fonts['body'],
+                             bg=self.colors['surface'],
+                             fg=self.colors['text_primary'],
+                             justify=tk.LEFT,
+                             anchor='w')
+        info_label.pack(fill=tk.X, pady=(0, 20))
+        
+        # 验证URL按钮
+        url_frame = tk.Frame(content_frame, bg=self.colors['surface'])
+        url_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        open_url_btn = self.create_button(url_frame, 
+                                         "🌐 打开验证页面", 
+                                         lambda: webbrowser.open(verification_url),
+                                         self.colors['primary'])
+        open_url_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # 复制URL按钮
+        copy_url_btn = self.create_button(url_frame, 
+                                         "📋 复制验证链接", 
+                                         lambda: self._copy_to_clipboard(verification_url),
+                                         self.colors['secondary'])
+        copy_url_btn.pack(side=tk.LEFT)
+        
+        # 验证令牌输入
+        token_frame = tk.Frame(content_frame, bg=self.colors['surface'])
+        token_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        token_label = tk.Label(token_frame, 
+                              text="验证令牌:", 
+                              font=self.fonts['body'],
+                              bg=self.colors['surface'],
+                              fg=self.colors['text_primary'])
+        token_label.pack(anchor='w', pady=(0, 5))
+        
+        token_entry = tk.Entry(token_frame, 
+                              font=self.fonts['body'],
+                              bg='white',
+                              fg=self.colors['text_primary'],
+                              relief=tk.FLAT,
+                              bd=1,
+                              highlightthickness=2,
+                              highlightcolor=self.colors['primary'])
+        token_entry.pack(fill=tk.X, pady=(0, 10))
+        token_entry.focus()
+        
+        # 按钮区域
+        button_frame = tk.Frame(content_frame, bg=self.colors['surface'])
+        button_frame.pack(fill=tk.X)
+        
+        def confirm_verification():
+            token = token_entry.get().strip()
+            if not token:
+                messagebox.showwarning("输入错误", "请输入验证令牌")
+                return
+            
+            # 保存验证令牌到环境变量
+            os.environ["TOMATO_VERIFICATION_TOKEN"] = token
+            
+            # 测试验证令牌是否有效
+            self._test_verification_token(token, dialog)
+        
+        def skip_verification():
+            result = messagebox.askyesno("跳过验证", 
+                                       "跳过验证可能导致部分功能无法使用。\n\n确定要跳过验证吗？")
+            if result:
+                dialog.destroy()
+        
+        confirm_btn = self.create_button(button_frame, 
+                                        "✅ 确认验证", 
+                                        confirm_verification,
+                                        self.colors['success'])
+        confirm_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        skip_btn = self.create_button(button_frame, 
+                                     "⏭️ 跳过验证", 
+                                     skip_verification,
+                                     self.colors['warning'])
+        skip_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        close_btn = self.create_button(button_frame, 
+                                      "❌ 关闭", 
+                                      dialog.destroy,
+                                      self.colors['error'])
+        close_btn.pack(side=tk.RIGHT)
+        
+        # 回车键确认
+        token_entry.bind('<Return>', lambda e: confirm_verification())
+    
+    def _copy_to_clipboard(self, text):
+        """复制文本到剪贴板"""
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            messagebox.showinfo("复制成功", "验证链接已复制到剪贴板")
+        except Exception as e:
+            messagebox.showerror("复制失败", f"无法复制到剪贴板: {str(e)}")
+    
+    def _test_verification_token(self, token, dialog):
+        """测试验证令牌是否有效"""
+        def test_in_background():
+            try:
+                from network import NetworkManager
+                network_manager = NetworkManager()
+                headers = network_manager.get_headers()
+                headers.update({
+                    'X-Auth-Token': network_manager.config.AUTH_TOKEN,
+                    'X-Verification-Token': token,
+                    'Content-Type': 'application/json'
+                })
+                
+                # 测试API访问
+                response = network_manager.make_request(network_manager.config.SERVER_URL, 
+                                                      headers=headers, timeout=10)
+                
+                if response and response.status_code == 200:
+                    # 验证成功
+                    self.root.after(0, lambda: self._verification_success(dialog))
+                else:
+                    # 验证失败
+                    self.root.after(0, lambda: self._verification_failed())
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("验证错误", f"验证过程中出错: {str(e)}"))
+        
+        threading.Thread(target=test_in_background, daemon=True).start()
+    
+    def _verification_success(self, dialog):
+        """验证成功"""
+        messagebox.showinfo("验证成功", "🎉 人机验证通过！现在可以正常使用所有功能。")
+        dialog.destroy()
+        # 验证成功后初始化API
+        self.initialize_api()
+        # 更新状态显示
+        self.update_verification_status("已验证 ✓", self.colors['success'])
+    
+    def _verification_failed(self):
+        """验证失败"""
+        messagebox.showerror("验证失败", "验证令牌无效或已过期，请重新获取。")
+    
+    def manual_verification(self):
+        """手动进行验证"""
+        self.show_captcha_dialog()
+    
+    def clear_verification_token(self):
+        """清除验证令牌"""
+        try:
+            # 清除环境变量中的验证令牌
+            if "TOMATO_VERIFICATION_TOKEN" in os.environ:
+                del os.environ["TOMATO_VERIFICATION_TOKEN"]
+            
+            # 更新状态显示
+            self.update_verification_status("已清除验证令牌")
+            messagebox.showinfo("清除成功", "验证令牌已清除")
+        except Exception as e:
+            messagebox.showerror("清除失败", f"清除验证令牌失败: {str(e)}")
+    
+    def update_verification_status(self, status_text, color=None):
+        """更新验证状态显示"""
+        if hasattr(self, 'verification_status_label'):
+            if color is None:
+                color = self.colors['text_secondary']
+            self.verification_status_label.config(text=f"状态: {status_text}", fg=color)
+    
+    def check_existing_verification(self):
+        """检查已有的验证状态"""
+        verification_token = os.environ.get("TOMATO_VERIFICATION_TOKEN")
+        if verification_token:
+            self.update_verification_status("已保存验证令牌 ✓", self.colors['success'])
+        else:
+            self.update_verification_status("未验证 (如遇到403/401错误时需要验证)", self.colors['text_secondary'])
 
 # 主程序入口
 if __name__ == "__main__":

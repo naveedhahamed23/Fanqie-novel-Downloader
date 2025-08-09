@@ -5,6 +5,7 @@
 """
 
 import re
+import json
 from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
 try:
@@ -13,14 +14,7 @@ try:
 except ImportError:
     # 提供基本配置作为后备
     class Config:
-        BATCH_CONFIG = {
-            "enabled": True,
-            "max_batch_size": 290,
-            "timeout": 10,
-            "name": "qyuing",
-            "batch_endpoint": None,
-            "token": None
-        }
+        pass
     
     class NetworkManager:
         def __init__(self):
@@ -43,24 +37,29 @@ class ContentProcessor:
     def extract_chapters(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """从HTML中提取章节信息"""
         chapters = []
-        
-        # 查找章节链接
-        chapter_links = soup.find_all('a', href=True)
-        
-        for link in chapter_links:
-            href = link.get('href', '')
-            title = link.get_text(strip=True)
+        for idx, item in enumerate(soup.select('div.chapter-item')):
+            a_tag = item.find('a')
+            if not a_tag:
+                continue
             
-            # 检查是否为章节链接
-            if self._is_chapter_link(href, title):
-                chapter_id = self._extract_chapter_id(href)
-                if chapter_id:
-                    chapters.append({
-                        'id': chapter_id,
-                        'title': title,
-                        'url': href
-                    })
-        
+            raw_title = a_tag.get_text(strip=True)
+            
+            if re.match(r'^(番外|特别篇|if线)\s*', raw_title):
+                final_title = raw_title
+            else:
+                clean_title = re.sub(
+                    r'^第[一二三四五六七八九十百千\d]+章\s*',
+                    '', 
+                    raw_title
+                ).strip()
+                final_title = f"第{idx+1}章 {clean_title}"
+            
+            chapters.append({
+                "id": a_tag['href'].split('/')[-1],
+                "title": final_title,
+                "url": f"https://fanqienovel.com{a_tag['href']}",
+                "index": idx
+            })
         return chapters
     
     def _is_chapter_link(self, href: str, title: str) -> bool:
@@ -110,20 +109,37 @@ class ContentProcessor:
     
     def process_chapter_content(self, content: str) -> str:
         """处理章节内容，清理和格式化"""
-        if not content:
+        if not content or not isinstance(content, str):
             return ""
         
-        # 移除HTML标签
-        soup = BeautifulSoup(content, 'html.parser')
-        text = soup.get_text()
-        
-        # 清理文本
-        text = self._clean_text(text)
-        
-        # 格式化段落
-        text = self._format_paragraphs(text)
-        
-        return text
+        try:
+            paragraphs = []
+            if '<p idx=' in content:
+                paragraphs = re.findall(r'<p idx="\d+">(.*?)</p>', content, re.DOTALL)
+            else:
+                paragraphs = content.split('\n')
+            
+            if paragraphs:
+                first_para = paragraphs[0].strip()
+                if not first_para.startswith('    '):
+                    paragraphs[0] = '    ' + first_para
+            
+            cleaned_content = "\n".join(p.strip() for p in paragraphs if p.strip())
+            formatted_content = '\n'.join('    ' + line if line.strip() else line 
+                                        for line in cleaned_content.split('\n'))
+            
+            formatted_content = re.sub(r'<header>.*?</header>', '', formatted_content, flags=re.DOTALL)
+            formatted_content = re.sub(r'<footer>.*?</footer>', '', formatted_content, flags=re.DOTALL)
+            formatted_content = re.sub(r'</?article>', '', formatted_content)
+            formatted_content = re.sub(r'<[^>]+>', '', formatted_content)
+            formatted_content = re.sub(r'\\u003c|\\u003e', '', formatted_content)
+            
+            # 压缩多余的空行
+            formatted_content = re.sub(r'\n{3,}', '\n\n', formatted_content).strip()
+            return formatted_content
+        except Exception as e:
+            print(f"内容处理错误: {str(e)}")
+            return str(content)
     
     def _clean_text(self, text: str) -> str:
         """清理文本内容"""
@@ -180,83 +196,6 @@ class ContentProcessor:
         
         return '\n\n'.join(paragraphs)
     
-    def batch_download_chapters(self, item_ids: List[str], headers: Dict[str, str]) -> Dict[str, str]:
-        """批量下载章节内容"""
-        results = {}
-        
-        if not item_ids:
-            return results
-        
-        # 检查是否支持批量下载
-        if self.config.BATCH_CONFIG['enabled'] and len(item_ids) > 1:
-            try:
-                batch_results = self._batch_download_via_api(item_ids, headers)
-                if batch_results:
-                    return batch_results
-            except Exception as e:
-                print(f"批量下载失败，回退到单个下载: {e}")
-        
-        # 单个下载
-        for item_id in item_ids:
-            try:
-                content = self._download_single_chapter(item_id, headers)
-                if content:
-                    results[item_id] = content
-            except Exception as e:
-                print(f"下载章节 {item_id} 失败: {e}")
-                results[item_id] = ""
-        
-        return results
-    
-    def _batch_download_via_api(self, item_ids: List[str], headers: Dict[str, str]) -> Dict[str, str]:
-        """通过API批量下载"""
-        batch_config = self.config.BATCH_CONFIG
-        
-        if not batch_config['batch_endpoint']:
-            return {}
-        
-        # 分批处理
-        max_batch_size = batch_config['max_batch_size']
-        results = {}
-        
-        for i in range(0, len(item_ids), max_batch_size):
-            batch_ids = item_ids[i:i + max_batch_size]
-            
-            data = {
-                'name': batch_config['name'],
-                'data': batch_ids
-            }
-            
-            if batch_config['token']:
-                data['token'] = batch_config['token']
-            
-            try:
-                response = self.network_manager.make_request(
-                    batch_config['batch_endpoint'],
-                    method='POST',
-                    headers=headers,
-                    data=data,
-                    timeout=batch_config['timeout']
-                )
-                
-                if response and response.get('code') == 0:
-                    batch_results = response.get('data', {})
-                    for item_id, content in batch_results.items():
-                        if content:
-                            processed_content = self.process_chapter_content(content)
-                            results[item_id] = processed_content
-                
-            except Exception as e:
-                print(f"批量下载批次失败: {e}")
-                continue
-        
-        return results
-    
-    def _download_single_chapter(self, item_id: str, headers: Dict[str, str]) -> str:
-        """下载单个章节"""
-        # 这里应该调用具体的下载逻辑
-        # 由于需要访问API端点，这部分逻辑会在download_engine中实现
-        return ""
     
     def extract_book_info_from_html(self, html_content: str) -> Dict[str, Any]:
         """从HTML中提取书籍信息"""
@@ -322,3 +261,43 @@ class ContentProcessor:
                 break
         
         return book_info
+    
+    def batch_download_chapters(self, item_ids, headers):
+        """批量下载章节内容"""
+        from config import CONFIG
+        
+        if not CONFIG["batch_config"]["enabled"] or CONFIG["batch_config"]["name"] != "qyuing":
+            print("批量下载功能仅限qyuing API")
+            return None
+            
+        batch_config = CONFIG["batch_config"]
+        url = f"{batch_config['base_url']}{batch_config['batch_endpoint']}"
+        
+        try:
+            batch_headers = headers.copy()
+            if batch_config["token"]:
+                batch_headers["token"] = batch_config["token"]
+            batch_headers["Content-Type"] = "application/json"
+            
+            payload = {"item_ids": item_ids}
+            response = self.network_manager.make_request(
+                url,
+                headers=batch_headers,
+                method='POST',
+                data=payload,
+                timeout=batch_config["timeout"],
+                verify=False
+            )
+            
+            if response and response.status_code == 200:
+                data = response.json()
+                if isinstance(data, dict) and "data" in data:
+                    return data["data"]
+                return data
+            else:
+                if response:
+                    print(f"批量下载失败，状态码: {response.status_code}")
+                return None
+        except Exception as e:
+            print(f"批量下载异常: {str(e)}")
+            return None

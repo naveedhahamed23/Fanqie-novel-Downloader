@@ -7,6 +7,9 @@
 import requests
 import bs4
 import time
+import random
+import json
+import re
 try:
     from config import CONFIG
     from network import NetworkManager
@@ -14,10 +17,7 @@ try:
 except ImportError:
     # 提供基本配置作为后备
     CONFIG = {
-        "batch_config": {
-            "enabled": True,
-            "name": "qyuing"
-        }
+        "api_endpoints": []
     }
     NetworkManager = None
     ContentProcessor = None
@@ -43,49 +43,128 @@ class DownloadEngine:
         下载章节内容，支持多个API源
         返回: (title, content) 或 (None, None)
         """
+        endpoints = CONFIG.get("api_endpoints") or []
+        if endpoints:
+            for idx, endpoint in enumerate(endpoints):
+                api_name = endpoint.get("name")
+                current_endpoint = endpoint.get("url", "")
+                try:
+                    time.sleep(random.uniform(0.1, 0.5))
+                    
+                    # fanqie_sdk API
+                    if api_name == "fanqie_sdk":
+                        params = endpoint.get("params", {"sdk_type": "4", "novelsdk_aid": "638505"})
+                        data = {
+                            "item_id": chapter_id,
+                            "need_book_info": 1,
+                            "show_picture": 1,
+                            "sdk_type": 1
+                        }
+                        
+                        response = self.network_manager.make_request(
+                            current_endpoint,
+                            headers=headers.copy(),
+                            params=params,
+                            method='POST',
+                            data=data,
+                            timeout=CONFIG.get("request_timeout", 15),
+                            verify=False
+                        )
+                        
+                        if response and response.status_code == 200:
+                            try:
+                                data = response.json()
+                                content = data.get("data", {}).get("content", "")
+                                title = data.get("data", {}).get("title", "")
+                                if content:
+                                    processed_content = self.content_processor.process_chapter_content(content)
+                                    processed = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
+                                    return title, processed
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    # fqweb API
+                    elif api_name == "fqweb":
+                        url = current_endpoint.format(chapter_id=chapter_id) if "{chapter_id}" in current_endpoint else f"{current_endpoint}?item_id={chapter_id}"
+                        resp = self.network_manager.make_request(url, headers=headers)
+                        if resp:
+                            try:
+                                data = resp.json()
+                                code_val = data.get("data", {}).get("code")
+                                if code_val in ("0", 0):
+                                    content = data.get("data", {}).get("data", {}).get("content", "")
+                                    title = data.get("data", {}).get("data", {}).get("title", "")
+                                    if content:
+                                        processed_content = self.content_processor.process_chapter_content(content)
+                                        processed = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
+                                        return title, processed
+                            except:
+                                continue
+                    
+                    # qyuing API
+                    elif api_name == "qyuing":
+                        response = self.network_manager.make_request(
+                            current_endpoint.format(chapter_id=chapter_id),
+                            headers=headers.copy(),
+                            timeout=CONFIG.get("request_timeout", 15),
+                            verify=False
+                        )
+                        
+                        if response:
+                            try:
+                                data = response.json()
+                                if data.get("code") == 0:
+                                    content = data.get("data", {}).get(chapter_id, {}).get("content", "")
+                                    if content:
+                                        return "", self.content_processor.process_chapter_content(content)
+                            except:
+                                continue
+                    
+                    # lsjk API
+                    elif api_name == "lsjk":
+                        response = self.network_manager.make_request(
+                            current_endpoint.format(chapter_id=chapter_id),
+                            headers=headers.copy(),
+                            timeout=CONFIG.get("request_timeout", 15),
+                            verify=False
+                        )
+                        
+                        if response and response.text:
+                            try:
+                                paragraphs = re.findall(r'<p idx="\d+">(.*?)</p>', response.text)
+                                cleaned = "\n".join(p.strip() for p in paragraphs if p.strip())
+                                formatted = '\n'.join('    ' + line if line.strip() else line 
+                                                    for line in cleaned.split('\n'))
+                                return "", formatted
+                            except:
+                                continue
+                                
+                except Exception as e:
+                    if idx < len(endpoints) - 1:
+                        self.log(f"API {api_name} 请求失败: {str(e)[:50]}，尝试切换")
+                    time.sleep(0.5)
+                    continue
+            return None, None
+        
+        # 回退到内置fqweb API
         apis = [
-            ("fanqie_sdk", f"https://novel.snssdk.com/api/novel/book/reader/full/v1/?device_platform=android&parent_id=0&aid=2329&platform_id=1&group_id={chapter_id}&item_id={chapter_id}"),
-            ("fqweb", f"http://fqweb.jsj66.com/content?item_id={chapter_id}"),
-            ("qyuing", f"https://novel.snssdk.com/api/novel/book/reader/full/v1/?device_platform=android&parent_id=0&aid=2329&platform_id=1&group_id={chapter_id}&item_id={chapter_id}"),
-            ("lsjk", f"https://novel.snssdk.com/api/novel/book/reader/full/v1/?device_platform=android&parent_id=0&aid=2329&platform_id=1&group_id={chapter_id}&item_id={chapter_id}")
+            ("fqweb", f"http://fqweb.jsj66.com/content?item_id={chapter_id}")
         ]
         
         for api_name, url in apis:
             try:
-                if api_name == "qyuing" and CONFIG["batch_config"]["enabled"]:
-                    # 使用批量下载
-                    batch_result = self.content_processor.batch_download_chapters([chapter_id], headers)
-                    if batch_result and chapter_id in batch_result:
-                        content = batch_result[chapter_id]
-                        processed_content = self.content_processor.process_chapter_content(content)
-                        return f"章节{chapter_id}", processed_content
-                
-                # 单个章节下载
-                response = self.network_manager.make_request(url, headers=headers)
-                if not response:
+                resp = self.network_manager.make_request(url, headers=headers)
+                if not resp:
                     continue
-                
-                data = response.json()
-                
-                if api_name == "fanqie_sdk":
-                    if data.get("code") == 0 and "data" in data:
-                        content = data["data"]["content"]
-                        processed_content = self.content_processor.process_chapter_content(content)
-                        return data["data"].get("title", f"章节{chapter_id}"), processed_content
-                
-                elif api_name == "fqweb":
-                    if data.get("isSuccess") and data.get("data", {}).get("code") == "0":
-                        chapter_data = data["data"]["data"]
-                        content = chapter_data["content"]
-                        processed_content = self.content_processor.process_chapter_content(content)
-                        return chapter_data.get("title", f"章节{chapter_id}"), processed_content
-                
-                elif api_name in ["qyuing", "lsjk"]:
-                    if data.get("code") == 0 and "data" in data:
-                        content = data["data"]["content"]
-                        processed_content = self.content_processor.process_chapter_content(content)
-                        return data["data"].get("title", f"章节{chapter_id}"), processed_content
-                
+                data = resp.json()
+                if api_name == "fqweb":
+                    code_val = data.get("data", {}).get("code")
+                    if code_val in ("0", 0):
+                        chapter_data = data["data"].get("data", {})
+                        content = chapter_data.get("content", "")
+                        if content:
+                            processed_content = self.content_processor.process_chapter_content(content)
+                            return chapter_data.get("title", f"章节{chapter_id}"), processed_content
             except Exception as e:
                 self.log(f"API {api_name} 请求失败: {str(e)}")
                 continue

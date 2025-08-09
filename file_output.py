@@ -7,6 +7,8 @@
 import os
 import time
 from ebooklib import epub
+import requests
+from io import BytesIO
 
 
 class FileOutputManager:
@@ -36,7 +38,8 @@ class FileOutputManager:
                 for idx in range(len(chapters)):
                     if idx in chapter_results:
                         result = chapter_results[idx]
-                        title = f'{result["base_title"]} {result["api_title"]}' if result["api_title"] else result["base_title"]
+                        # 优先使用API返回的标题，避免与基础标题重复
+                        title = (result.get("api_title") or result.get("base_title") or "").strip()
                         f.write(f'{title}\n')
                         f.write(result['content'] + '\n\n')
             
@@ -68,6 +71,12 @@ class FileOutputManager:
         book.add_author(book_data.get('author', '未知作者'))
         book.add_metadata('DC', 'description', book_data.get('description', '无简介'))
         
+        # 封面（如果提供了URL）
+        for key in ("thumb_url", "expand_thumb_url", "audio_thumb_url_hd"):
+            cover_url = book_data.get(key)
+            if cover_url and self._add_epub_cover(book, cover_url):
+                break
+        
         book.toc = []
         spine = ['nav']
         
@@ -75,7 +84,8 @@ class FileOutputManager:
         for idx in range(len(chapters)):
             if idx in chapter_results:
                 result = chapter_results[idx]
-                title = f'{result["base_title"]} {result["api_title"]}' if result["api_title"] else result["base_title"]
+                # 优先使用API返回的标题，避免重复
+                title = (result.get("api_title") or result.get("base_title") or "").strip()
                 
                 chapter = epub.EpubHtml(
                     title=title,
@@ -119,6 +129,12 @@ class FileOutputManager:
             else:
                 book.add_metadata('DC', 'type', '连载中')
             
+            # 封面（如果提供了URL）
+            for key in ("thumb_url", "expand_thumb_url", "audio_thumb_url_hd"):
+                cover_url = enhanced_info.get(key)
+                if cover_url and self._add_epub_cover(book, cover_url):
+                    break
+            
             book.toc = []
             spine = ['nav']
             
@@ -153,7 +169,8 @@ class FileOutputManager:
             for idx in range(len(chapters)):
                 if idx in chapter_results:
                     result = chapter_results[idx]
-                    title = f'{result["base_title"]} {result["api_title"]}' if result["api_title"] else result["base_title"]
+                    # 优先使用API返回的标题，避免重复
+                    title = (result.get("api_title") or result.get("base_title") or "").strip()
                     
                     chapter = epub.EpubHtml(
                         title=title,
@@ -200,4 +217,59 @@ class FileOutputManager:
             return True
         except Exception as e:
             self.log(f"创建目录失败: {str(e)}")
+            return False
+    
+    def _add_epub_cover(self, book, cover_url: str) -> bool:
+        """下载并设置EPUB封面"""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                'Referer': 'https://fanqienovel.com/'
+            }
+            resp = requests.get(cover_url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            content_type = resp.headers.get('content-type', '')
+            if not content_type.startswith('image/'):
+                return False
+
+            raw_bytes = resp.content
+            ext = 'jpg'
+
+            # 优先转换为JPEG，提升兼容性
+            need_convert = ('heic' in content_type.lower()) or ('webp' in content_type.lower())
+            if not need_convert and ('jpeg' in content_type.lower() or 'jpg' in content_type.lower()):
+                ext = 'jpg'
+            elif not need_convert and 'png' in content_type.lower():
+                ext = 'png'
+            else:
+                need_convert = True
+
+            if need_convert:
+                try:
+                    # 尝试用Pillow进行转换
+                    try:
+                        from PIL import Image
+                        try:
+                            import pillow_heif
+                            pillow_heif.register_heif_opener()
+                        except Exception:
+                            pass
+                        img = Image.open(BytesIO(raw_bytes))
+                        if img.mode not in ("RGB", "L"):
+                            img = img.convert("RGB")
+                        buf = BytesIO()
+                        img.save(buf, format='JPEG', quality=85)
+                        raw_bytes = buf.getvalue()
+                        ext = 'jpg'
+                    except Exception:
+                        # 转换失败则回退原图（尽管可能兼容性差）
+                        ext = 'jpg' if 'jpeg' in content_type.lower() or 'jpg' in content_type.lower() else ('png' if 'png' in content_type.lower() else 'jpg')
+                except Exception:
+                    pass
+
+            book.set_cover(f'cover.{ext}', raw_bytes)
+            return True
+        except Exception as e:
+            self.log(f"添加封面失败: {e}")
             return False

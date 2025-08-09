@@ -41,38 +41,6 @@ jobs:
         VERSION=$(python -c "import datetime; print(datetime.datetime.now().strftime('%Y.%m.%d.%H%M'))")-$(echo ${{ github.sha }} | cut -c1-7)
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "Generated version: $VERSION"
-      
-    - name: 创建版本文件
-      shell: bash
-      run: |
-        cat > version.py << 'EOF'
-        # -*- coding: utf-8 -*-
-        VERSION = "${{ steps.version.outputs.VERSION }}"
-        BUILD_TIME = "$(date +'%Y.%m.%d.%H%M')"
-        COMMIT_HASH = "${{ github.sha }}"
-        BRANCH = "${{ github.ref_name }}"
-        IS_COMPILED_VERSION = True
-        
-        def get_version_info():
-            return {
-                'version': VERSION,
-                'build_time': BUILD_TIME,
-                'commit_hash': COMMIT_HASH,
-                'branch': BRANCH,
-                'is_compiled': IS_COMPILED_VERSION
-            }
-        
-        def get_version_string():
-            return f"v{VERSION}"
-            
-        def is_development_version():
-            return False
-            
-        def get_base_version():
-            if '-' in VERSION:
-                return VERSION.split('-')[0]
-            return VERSION
-        EOF
 
     - name: 安装系统依赖 (Linux)
       if: runner.os == 'Linux'
@@ -173,18 +141,7 @@ jobs:
         fi
         cd ..
         
-        # 创建更新信息
-        cat > "update_info_${{ matrix.artifact_name }}.json" << EOF
-        {
-          "version": "${{ steps.version.outputs.VERSION }}",
-          "platform": "${{ matrix.artifact_name }}",
-          "build_time": "$(date +'%Y.%m.%d.%H%M')",
-          "download_url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/TomatoNovelDownloader-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_name }}.zip",
-          "changelog": "自动构建版本 ${{ steps.version.outputs.VERSION }}",
-          "commit": "${{ github.sha }}",
-          "branch": "${{ github.ref_name }}"
-        }
-        EOF
+        # 不再需要创建更新信息文件（已移除自动更新功能）
       shell: bash
 
     - name: 上传构建产物
@@ -193,7 +150,6 @@ jobs:
         name: TomatoNovelDownloader-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_name }}
         path: |
           TomatoNovelDownloader-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_name }}.zip
-          update_info_${{ matrix.artifact_name }}.json
         
   release:
     needs: build
@@ -213,8 +169,8 @@ jobs:
     - name: 获取版本号
       id: get_version
       run: |
-        # 从任意一个更新信息文件中提取版本号
-        VERSION=$(find artifacts -name "update_info_*.json" | head -1 | xargs cat | python3 -c "import sys, json; print(json.load(sys.stdin)['version'])")
+        # 从文件名中提取版本号
+        VERSION=$(find artifacts -name "TomatoNovelDownloader-*" -type d | head -1 | sed 's/.*TomatoNovelDownloader-\(.*\)-.*/\1/')
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "Found version: $VERSION"
 
@@ -222,7 +178,6 @@ jobs:
       run: |
         mkdir -p release
         find artifacts -name "*.zip" -exec cp {} release/ \;
-        find artifacts -name "*.json" -exec cp {} release/ \;
         ls -la release/
 
     - name: 创建Release

@@ -44,13 +44,14 @@ class EnhancedNovelDownloader:
         """取消下载"""
         self.is_cancelled = True
         
-    def run_download(self, book_id, save_path, file_format='txt', start_chapter=None, end_chapter=None):
+    def run_download(self, book_id, save_path, file_format='txt', start_chapter=None, end_chapter=None, gui_callback=None):
         """运行下载"""
         try:
-            # 初始化API端点
+            # 在开始下载时进行API端点验证
             if not CONFIG["api_endpoints"]:
-                print("Fetching API list from server...")
-                self.network_manager.fetch_api_endpoints_from_server()
+                if self.progress_callback:
+                    self.progress_callback(5, "正在验证下载接口...")
+                self.network_manager.fetch_api_endpoints_from_server(gui_callback)
             
             headers = self.network_manager.get_headers()
             chapters = self.download_engine.get_chapters_from_api(book_id, headers)
@@ -62,6 +63,13 @@ class EnhancedNovelDownloader:
                 name = f"未知小说_{book_id}"
                 author_name = "未知作者"
                 description = "无简介"
+
+            # 获取增强信息（用于封面等）
+            enhanced_info = None
+            try:
+                enhanced_info = self.download_engine.get_book_info_enhanced(book_id, headers)
+            except Exception:
+                enhanced_info = None
 
             # 确定下载范围
             if start_chapter is not None and end_chapter is not None:
@@ -180,7 +188,16 @@ class EnhancedNovelDownloader:
                 if self.progress_callback:
                     self.progress_callback(95, "正在保存文件...")
                 
-                self._write_downloaded_chapters_in_order(output_file_path, name, author_name, description, file_format)
+                # 组装附加书籍信息（封面等）
+                extra_book_data = {}
+                if enhanced_info:
+                    for key in ("thumb_url", "expand_thumb_url", "audio_thumb_url_hd", "source"):
+                        if key in enhanced_info:
+                            extra_book_data[key] = enhanced_info.get(key)
+                
+                self._write_downloaded_chapters_in_order(
+                    output_file_path, name, author_name, description, file_format, chapters, extra_book_data
+                )
                 
                 if self.progress_callback:
                     self.progress_callback(100, f"下载完成！成功下载 {success_count} 个章节")
@@ -189,24 +206,24 @@ class EnhancedNovelDownloader:
             if self.progress_callback:
                 self.progress_callback(-1, f"下载错误: {str(e)}")
             raise e
-
-    def _write_downloaded_chapters_in_order(self, output_file_path, name, author_name, description, file_format):
+    
+    def _write_downloaded_chapters_in_order(self, output_file_path, name, author_name, description, file_format, chapters, extra_book_data=None):
         """按章节顺序写入文件"""
         if not self.chapter_results:
             return
             
+        book_data = {
+            'name': name,
+            'author': author_name,
+            'description': description
+        }
+        if extra_book_data:
+            book_data.update(extra_book_data)
+        
         if file_format == 'txt':
-            self.file_output_manager.save_as_txt(output_file_path, {
-                'book_name': name,
-                'author': author_name,
-                'abstract': description
-            }, self.chapter_results)
+            self.file_output_manager.save_as_txt(output_file_path, book_data, chapters, self.chapter_results)
         elif file_format == 'epub':
-            self.file_output_manager.save_as_epub(output_file_path, {
-                'book_name': name,
-                'author': author_name,
-                'abstract': description
-            }, self.chapter_results)
+            self.file_output_manager.save_as_epub(output_file_path, book_data, chapters, self.chapter_results)
             
         # 下载完成后自动清理chapter.json
         try:
@@ -221,13 +238,18 @@ class EnhancedNovelDownloader:
 class TomatoNovelAPI:
     """番茄小说API类 - 集成增强型下载器"""
     
-    def __init__(self):
-        """初始化API，集成增强型下载器"""
+    def __init__(self, gui_callback=None):
+        """初始化API，集成增强型下载器
+        
+        Args:
+            gui_callback: GUI验证码回调函数
+        """
         # 初始化增强型下载器
         self.enhanced_downloader = EnhancedNovelDownloader()
         
         # 下载状态
         self.current_progress_callback = None
+        self.gui_verification_callback = gui_callback
         
         # 初始化模块化组件
         self.network_manager = NetworkManager()
@@ -236,9 +258,7 @@ class TomatoNovelAPI:
         self.file_output_manager = FileOutputManager()
         self.state_manager = StateManager()
         
-        # 初始化API端点
-        if not CONFIG["api_endpoints"]:
-            self.network_manager.fetch_api_endpoints_from_server()
+        # 不在初始化时获取API端点，延迟到下载时
     
     def search_novels(self, keyword, offset=0, tab_type=1):
         """
@@ -251,17 +271,44 @@ class TomatoNovelAPI:
                 "page": offset // 10 + 1  # 页码从1开始
             }
             resp = self.network_manager.make_request(url, params=params, timeout=10)
-            data = resp.json()
+            
+            # 检查响应状态
+            if resp.status_code != 200:
+                print(f"fqweb API返回错误状态: {resp.status_code}")
+                raise Exception(f"HTTP {resp.status_code}")
+            
+            # 安全解析JSON
+            try:
+                data = resp.json()
+            except Exception as json_err:
+                print(f"fqweb API响应不是有效JSON: {json_err}")
+                print(f"响应内容: {resp.text[:200]}...")
+                raise Exception("无效的JSON响应")
+            
+            # 检查数据类型
+            if not isinstance(data, dict):
+                print(f"fqweb API返回了非字典类型: {type(data)}")
+                print(f"返回内容: {str(data)[:200]}...")
+                raise Exception("API返回格式错误")
+            
             items = []
             # 适配真实结构
             if (
                 data.get("data")
+                and isinstance(data["data"], dict)
                 and data["data"].get("code") in ("0", 0)
                 and data["data"].get("search_tabs")
+                and isinstance(data["data"]["search_tabs"], list)
             ):
                 for tab in data["data"]["search_tabs"]:
+                    if not isinstance(tab, dict):
+                        continue
                     for entry in tab.get("data", []):
+                        if not isinstance(entry, dict):
+                            continue
                         for book in entry.get("book_data", []):
+                            if not isinstance(book, dict):
+                                continue
                             items.append({
                                 "book_id": book.get("book_id", book.get("id", "")),
                                 "book_name": book.get("book_name", book.get("name", "")),
@@ -278,6 +325,7 @@ class TomatoNovelAPI:
                                 "tomato_book_status": book.get("tomato_book_status", ""),
                                 "source": "fqweb"
                             })
+            
             return {
                 "success": True,
                 "data": {
@@ -312,6 +360,10 @@ class TomatoNovelAPI:
             dict: 小说信息
         """
         try:
+            # 在获取小说信息时检查API端点
+            if not CONFIG["api_endpoints"]:
+                self.network_manager.fetch_api_endpoints_from_server(self.gui_verification_callback)
+            
             headers = self.network_manager.get_headers()
             
             # 首先尝试使用增强API
@@ -362,6 +414,10 @@ class TomatoNovelAPI:
             dict: 章节内容
         """
         try:
+            # 在获取章节内容时检查API端点
+            if not CONFIG["api_endpoints"]:
+                self.network_manager.fetch_api_endpoints_from_server(self.gui_verification_callback)
+            
             headers = self.network_manager.get_headers()
             title, content = self.download_engine.down_text(item_ids, headers)
             
@@ -397,6 +453,10 @@ class TomatoNovelAPI:
             dict: 目录信息
         """
         try:
+            # 在获取书籍目录时检查API端点
+            if not CONFIG["api_endpoints"]:
+                self.network_manager.fetch_api_endpoints_from_server(self.gui_verification_callback)
+            
             headers = self.network_manager.get_headers()
             chapters = self.download_engine.get_chapters_from_api(book_id, headers)
             
@@ -429,6 +489,10 @@ class TomatoNovelAPI:
             dict: 包含章节ID列表的书籍详细信息
         """
         try:
+            # 在获取书籍详情时检查API端点
+            if not CONFIG["api_endpoints"]:
+                self.network_manager.fetch_api_endpoints_from_server(self.gui_verification_callback)
+            
             # 使用模块化组件获取章节列表
             headers = self.network_manager.get_headers()
             chapters = self.download_engine.get_chapters_from_api(bookId, headers)
@@ -461,6 +525,12 @@ class TomatoNovelAPI:
             dict: 小说完整内容
         """
         import tempfile
+        
+        # 在开始下载时进行API端点验证
+        if not CONFIG["api_endpoints"]:
+            if self.current_progress_callback:
+                self.current_progress_callback(5, "正在验证下载接口...")
+            self.network_manager.fetch_api_endpoints_from_server(self.gui_verification_callback)
         
         # 设置进度回调
         self.enhanced_downloader.progress_callback = self.current_progress_callback
@@ -513,7 +583,8 @@ class TomatoNovelAPI:
                     temp_dir, 
                     'txt',
                     start_chapter,
-                    end_chapter
+                    end_chapter,
+                    self.gui_verification_callback
                 )
                 
                 # 构建章节内容列表
