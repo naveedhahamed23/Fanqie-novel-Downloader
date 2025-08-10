@@ -48,17 +48,21 @@ jobs:
         echo "Build time: $BUILD_TIME"
         
         # 更新version.py文件
-        cat > version.py << EOF
+        cat > version.py << 'EOF'
 # -*- coding: utf-8 -*-
 """
 版本信息文件
 """
 
-__version__ = "$VERSION"
+__version__ = "VERSION_PLACEHOLDER"
 __author__ = "Tomato Novel Downloader"
 __description__ = "A modern novel downloader with GitHub auto-update support"
 __github_repo__ = "POf-L/Fanqie-novel-Downloader"
 EOF
+        
+        # 替换版本号占位符
+        sed -i.bak "s/VERSION_PLACEHOLDER/$VERSION/g" version.py || sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" version.py
+        rm -f version.py.bak
         
         echo "Updated version.py with version: $VERSION"
         cat version.py
