@@ -104,6 +104,7 @@ jobs:
             pyinstaller --onefile --console --name=${{ matrix.executable }} \
               --hidden-import=bs4 \
               --hidden-import=fake_useragent \
+              --hidden-import=fake_useragent.data \
               --hidden-import=tqdm \
               --hidden-import=requests \
               --hidden-import=urllib3 \
@@ -115,12 +116,15 @@ jobs:
               --hidden-import=PIL.ImageFile \
               --hidden-import=PIL.JpegImagePlugin \
               --hidden-import=PIL.PngImagePlugin \
+              --hidden-import=pillow_heif \
+              --collect-data=fake_useragent \
               gui.py
           else
             # Release版本 - 窗口模式
             pyinstaller --onefile --windowed --name=${{ matrix.executable }} \
               --hidden-import=bs4 \
               --hidden-import=fake_useragent \
+              --hidden-import=fake_useragent.data \
               --hidden-import=tqdm \
               --hidden-import=requests \
               --hidden-import=urllib3 \
@@ -132,6 +136,8 @@ jobs:
               --hidden-import=PIL.ImageFile \
               --hidden-import=PIL.JpegImagePlugin \
               --hidden-import=PIL.PngImagePlugin \
+              --hidden-import=pillow_heif \
+              --collect-data=fake_useragent \
               gui.py
           fi
         shell: bash

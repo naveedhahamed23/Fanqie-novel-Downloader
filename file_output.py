@@ -10,6 +10,13 @@ from ebooklib import epub
 import requests
 from io import BytesIO
 
+# 添加HEIC支持
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass  # 静默失败，不影响主要功能
+
 
 class FileOutputManager:
     """文件输出管理器"""

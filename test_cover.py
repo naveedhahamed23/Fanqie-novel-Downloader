@@ -10,6 +10,14 @@ import sys
 import requests
 from io import BytesIO
 
+# 添加HEIC支持
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    print("HEIC format support enabled")
+except ImportError:
+    print("pillow-heif not installed, HEIC format may not display properly")
+
 def test_pil_import():
     """测试PIL导入"""
     print("=== 测试PIL导入 ===")
