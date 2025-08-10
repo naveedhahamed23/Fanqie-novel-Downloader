@@ -10,7 +10,9 @@ block_cipher = None
 a = Analysis(
     ['gui.py'],
     pathex=[],
-    binaries=[],
+    binaries=[
+        # 确保Pillow的二进制文件被包含
+    ],
     datas=[
         # ('version.py', '.'),  # Removed version.py file
     ],
@@ -24,6 +26,16 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'PIL.ImageTk',
+        'PIL.ImageDraw',
+        'PIL.ImageFile',
+        'PIL.ImageFont',
+        'PIL.ImageOps',
+        'PIL.JpegImagePlugin',
+        'PIL.PngImagePlugin',
+        'PIL.GifImagePlugin',
+        'PIL.BmpImagePlugin',
+        'PIL.WebPImagePlugin',
+        'PIL._imaging',
         'tkinter',
         'tkinter.ttk',
         'tkinter.messagebox',

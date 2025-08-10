@@ -108,6 +108,8 @@ jobs:
       run: |
         pip install -r requirements.txt
         pip install pyinstaller
+        # 确保Pillow完整安装
+        pip install --force-reinstall Pillow
 
     - name: 验证依赖安装
       env:
@@ -115,6 +117,8 @@ jobs:
         PYTHONUTF8: 1
       run: |
         python -c "import requests, PIL, ebooklib, bs4, fake_useragent, tqdm; print('All dependencies installed successfully')"
+        python -c "from PIL import Image, ImageTk, ImageDraw, ImageFile; print('PIL modules imported successfully')"
+        python -c "import PIL.JpegImagePlugin, PIL.PngImagePlugin; print('PIL image plugins loaded successfully')"
 
     - name: 检查构建脚本
       run: |

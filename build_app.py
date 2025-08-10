@@ -55,6 +55,17 @@ def build_executable():
             "--hidden-import=PIL",
             "--hidden-import=PIL.Image",
             "--hidden-import=PIL.ImageTk",
+            "--hidden-import=PIL.ImageDraw",
+            "--hidden-import=PIL.ImageFile",
+            "--hidden-import=PIL.ImageFont",
+            "--hidden-import=PIL.ImageOps",
+            "--hidden-import=PIL.JpegImagePlugin",
+            "--hidden-import=PIL.PngImagePlugin",
+            "--hidden-import=PIL.GifImagePlugin",
+            "--hidden-import=PIL.BmpImagePlugin",
+            "--hidden-import=PIL.WebPImagePlugin",
+            "--hidden-import=PIL._imaging",
+            "--collect-submodules=PIL",
             "gui.py"
         ]
     
