@@ -116,10 +116,45 @@ class UpdateChecker:
             return False
         
         try:
-            latest_ver = version.parse(latest_release['version'])
-            current_ver = version.parse(self.current_version)
+            latest_version = latest_release['version']
+            current_version = self.current_version
+            
+            # 如果版本号包含日期格式（YYYY.MM.DD.HHMM+hash），使用字符串比较
+            if self._is_timestamp_version(latest_version) or self._is_timestamp_version(current_version):
+                return self._compare_timestamp_versions(latest_version, current_version)
+            
+            # 传统版本号使用packaging.version比较
+            latest_ver = version.parse(latest_version)
+            current_ver = version.parse(current_version)
             return latest_ver > current_ver
+        except Exception as e:
+            print(f"版本比较失败: {e}")
+            return False
+    
+    def _is_timestamp_version(self, ver_str: str) -> bool:
+        """检查是否为时间戳格式的版本号（YYYY.MM.DD.HHMM+hash）"""
+        import re
+        pattern = r'^\d{4}\.\d{2}\.\d{2}\.\d{4}\+[a-f0-9]{7}$'
+        return bool(re.match(pattern, ver_str))
+    
+    def _compare_timestamp_versions(self, latest: str, current: str) -> bool:
+        """
+        比较时间戳格式的版本号
+        格式: YYYY.MM.DD.HHMM+hash
+        """
+        try:
+            # 提取时间戳部分进行比较
+            latest_timestamp = latest.split('+')[0] if '+' in latest else latest
+            current_timestamp = current.split('+')[0] if '+' in current else current
+            
+            # 如果是传统版本号，认为较旧
+            if not self._is_timestamp_version(current):
+                return True
+            
+            # 时间戳比较：较新的时间戳表示更新的版本
+            return latest_timestamp > current_timestamp
         except Exception:
+            # 出错时，保守地认为有更新
             return False
     
     def get_update_info(self) -> Optional[Dict[str, Any]]:
@@ -406,10 +441,18 @@ def get_current_version() -> str:
     # 尝试从version.py文件读取
     version_file = os.path.join(os.path.dirname(__file__), 'version.py')
     if os.path.exists(version_file):
-        with open(version_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.startswith('__version__'):
-                    return line.split('=')[1].strip().strip('"\'')
+        try:
+            with open(version_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # 查找__version__定义
+                for line in content.split('\n'):
+                    if line.strip().startswith('__version__'):
+                        # 提取版本号，支持单引号和双引号
+                        version_str = line.split('=')[1].strip()
+                        version_str = version_str.strip('"\'')
+                        return version_str
+        except Exception as e:
+            print(f"读取版本文件失败: {e}")
     
     # 默认版本号
     return "1.0.0"
