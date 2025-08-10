@@ -38,7 +38,7 @@ jobs:
       id: version
       shell: bash
       run: |
-        VERSION=$(python -c "import datetime; print(datetime.datetime.now().strftime('%Y.%m.%d.%H%M'))")-$(echo ${{ github.sha }} | cut -c1-7)
+        VERSION=$(python -c "import datetime; print(datetime.datetime.now().strftime('%Y.%m.%d.%H%M'))")+$(echo ${{ github.sha }} | cut -c1-7)
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "Generated version: $VERSION"
         
