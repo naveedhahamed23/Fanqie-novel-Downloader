@@ -34,13 +34,34 @@ jobs:
       with:
         python-version: '3.11'
         
-    - name: 生成版本号
+    - name: 生成版本号并更新version.py
       id: version
       shell: bash
       run: |
         VERSION=$(python -c "import datetime; print(datetime.datetime.now().strftime('%Y.%m.%d.%H%M'))")-$(echo ${{ github.sha }} | cut -c1-7)
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "Generated version: $VERSION"
+        
+        # 生成构建时间
+        BUILD_TIME=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')
+        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
+        echo "Build time: $BUILD_TIME"
+        
+        # 更新version.py文件
+        cat > version.py << EOF
+# -*- coding: utf-8 -*-
+"""
+版本信息文件
+"""
+
+__version__ = "$VERSION"
+__author__ = "Tomato Novel Downloader"
+__description__ = "A modern novel downloader with GitHub auto-update support"
+__github_repo__ = "POf-L/Fanqie-novel-Downloader"
+EOF
+        
+        echo "Updated version.py with version: $VERSION"
+        cat version.py
 
     - name: 安装系统依赖 (Linux)
       if: runner.os == 'Linux'
@@ -166,13 +187,18 @@ jobs:
       with:
         path: artifacts/
 
-    - name: 获取版本号
+    - name: 获取版本号和构建时间
       id: get_version
       run: |
         # 从文件名中提取版本号
         VERSION=$(find artifacts -name "TomatoNovelDownloader-*" -type d | head -1 | sed 's/.*TomatoNovelDownloader-\(.*\)-.*/\1/')
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "Found version: $VERSION"
+        
+        # 生成构建时间（中国时区）
+        BUILD_TIME=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')
+        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
+        echo "Build time: $BUILD_TIME"
 
     - name: 整理发布文件
       run: |
@@ -189,7 +215,7 @@ jobs:
           ## 🚀 自动构建版本 ${{ steps.get_version.outputs.VERSION }}
 
           **构建信息:**
-          - 构建时间: $(date +'%Y-%m-%d %H:%M:%S')
+          - 构建时间: ${{ steps.get_version.outputs.BUILD_TIME }} (UTC+8)
           - 提交哈希: ${{ github.sha }}
           - 分支: ${{ github.ref_name }}
 
