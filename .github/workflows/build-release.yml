@@ -26,20 +26,20 @@ jobs:
           # Linux 构建
           - os: ubuntu-latest
             variant: release
-            executable: TomatoNovelDownloader
+            executable: TomatoNovelDownloader-linux
             artifact_name: TomatoNovelDownloader-linux
           - os: ubuntu-latest
             variant: debug
-            executable: TomatoNovelDownloader-debug
+            executable: TomatoNovelDownloader-debug-linux
             artifact_name: TomatoNovelDownloader-debug-linux
           # macOS 构建
           - os: macos-latest
             variant: release
-            executable: TomatoNovelDownloader
+            executable: TomatoNovelDownloader-macos
             artifact_name: TomatoNovelDownloader-macos
           - os: macos-latest
             variant: debug
-            executable: TomatoNovelDownloader-debug
+            executable: TomatoNovelDownloader-debug-macos
             artifact_name: TomatoNovelDownloader-debug-macos
 
     runs-on: ${{ matrix.os }}
