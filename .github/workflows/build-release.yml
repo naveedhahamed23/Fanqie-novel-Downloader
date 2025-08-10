@@ -65,6 +65,34 @@ jobs:
         run: |
           brew install tcl-tk || true
 
+      - name: Generate version and update version.py
+        id: version
+        run: |
+          VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
+          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+          echo "Build time: $BUILD_TIME"
+          
+          # 更新version.py文件
+          cat > version.py << EOF
+# -*- coding: utf-8 -*-
+"""
+版本信息文件 - GitHub Actions自动生成
+"""
+
+__version__ = "$VERSION"
+__author__ = "Tomato Novel Downloader"
+__description__ = "A modern novel downloader with GitHub auto-update support"
+__github_repo__ = "POf-L/Fanqie-novel-Downloader"
+__build_time__ = "$BUILD_TIME"
+EOF
+          
+          echo "更新后的version.py:"
+          cat version.py
+        shell: bash
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -139,15 +167,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate version
+      - name: Get version from build
         id: version
         run: |
+          # 使用与build job中相同的逻辑生成版本号
           VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
           BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
-          echo "Generated version: $VERSION"
-          echo "Build time: $BUILD_TIME"
+          echo "Using version: $VERSION"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
