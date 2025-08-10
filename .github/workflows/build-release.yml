@@ -50,24 +50,24 @@ jobs:
         # 使用Python脚本更新version.py文件
         export VERSION
         python << 'PYTHON_SCRIPT'
-import os
-version = os.environ.get('VERSION', '1.0.0')
-content = f'''# -*- coding: utf-8 -*-
-"""
-版本信息文件
-"""
-
-__version__ = "{version}"
-__author__ = "Tomato Novel Downloader"
-__description__ = "A modern novel downloader with GitHub auto-update support"
-__github_repo__ = "POf-L/Fanqie-novel-Downloader"
-'''
-
-with open('version.py', 'w', encoding='utf-8') as f:
-    f.write(content)
-    
-print(f"Updated version.py with version: {version}")
-PYTHON_SCRIPT
+        import os
+        version = os.environ.get('VERSION', '1.0.0')
+        content = f'''# -*- coding: utf-8 -*-
+        """
+        版本信息文件
+        """
+        
+        __version__ = "{version}"
+        __author__ = "Tomato Novel Downloader"
+        __description__ = "A modern novel downloader with GitHub auto-update support"
+        __github_repo__ = "POf-L/Fanqie-novel-Downloader"
+        '''
+        
+        with open('version.py', 'w', encoding='utf-8') as f:
+            f.write(content)
+            
+        print(f"Updated version.py with version: {version}")
+        PYTHON_SCRIPT
         
         echo "version.py content:"
         cat version.py
