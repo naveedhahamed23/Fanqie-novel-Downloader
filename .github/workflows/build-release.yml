@@ -76,18 +76,22 @@ jobs:
           echo "Build time: $BUILD_TIME"
           
           # 更新version.py文件
-          cat > version.py << EOF
+          cat > version.py << 'EOF'
 # -*- coding: utf-8 -*-
 """
 版本信息文件 - GitHub Actions自动生成
 """
 
 __version__ = "$VERSION"
-__author__ = "Tomato Novel Downloader"
+__author__ = "Tomato Novel Downloader" 
 __description__ = "A modern novel downloader with GitHub auto-update support"
 __github_repo__ = "POf-L/Fanqie-novel-Downloader"
 __build_time__ = "$BUILD_TIME"
 EOF
+          
+          # 替换变量
+          sed -i "s/\$VERSION/$VERSION/g" version.py
+          sed -i "s/\$BUILD_TIME/$BUILD_TIME/g" version.py
           
           echo "更新后的version.py:"
           cat version.py
