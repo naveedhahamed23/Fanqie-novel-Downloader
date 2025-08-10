@@ -99,11 +99,12 @@ jobs:
             ${{ matrix.config.os }}-pip-
             
       - name: 高速安装依赖 ⚡
+        shell: bash  # 强制使用bash解决跨平台兼容性
         run: |
           # 使用最快的pip配置和多线程安装
           python -m pip install -U pip setuptools wheel --disable-pip-version-check --no-warn-script-location
           # 并行下载和安装，利用多核CPU
-          pip install --upgrade --prefer-binary --no-deps -r requirements.txt
+          pip install --upgrade -r requirements.txt
           pip install --upgrade "pyinstaller>=6.5,<7" "pyinstaller-hooks-contrib>=2024.7"
 
       - name: Build (${{ matrix.config.variant }}) 🚀
@@ -112,10 +113,11 @@ jobs:
           PYINSTALLER_COMPILE_PROCESSES: 0  # 使用所有可用CPU核心(4核)
           PYTHONOPTIMIZE: 2                 # 最高级别Python优化
           OMP_NUM_THREADS: 4                 # 充分利用免费runner的4个CPU核心
+        shell: bash  # 强制使用bash解决Windows PowerShell问题
         run: |
           echo "🆓✨ 开始免费最强性能构建，使用 $(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo '4') 个CPU核心, 16GB内存"
           # 免费runner最大化性能优化PyInstaller构建参数
-          time python -m PyInstaller \
+          python -m PyInstaller \
             --clean \
             --noconfirm \
             --log-level=ERROR \
@@ -130,7 +132,7 @@ jobs:
             --exclude-module numpy \
             --exclude-module scipy \
             ${{ matrix.config.spec }}
-          echo "✅ 构建完成！文件大小: $(ls -lh dist/${{ matrix.config.exe }} | awk '{print $5}')"
+          echo "✅ 构建完成！文件大小: $(ls -lh dist/${{ matrix.config.exe }} 2>/dev/null | awk '{print $5}' || echo 'Unknown')"
 
       - name: Show dist contents
         run: |
