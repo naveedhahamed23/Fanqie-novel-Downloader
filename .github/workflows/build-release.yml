@@ -1,372 +1,99 @@
-name: 构建和发布
+name: Build Release and Debug
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      note:
+        description: 'Manual trigger for Windows build (Release & Debug)'
+        required: false
+        default: ''
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - '**/*.py'
+      - 'build.spec'
+      - 'debug.spec'
+      - '.github/workflows/build-release.yml'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  build-windows:
+    name: Windows PyInstaller (${{ matrix.variant }})
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
+        variant: [release, debug]
         include:
-          - os: windows-latest
-            artifact_name: windows
-            executable: TomatoNovelDownloader.exe
-            debug_executable: TomatoNovelDownloader-debug.exe
-          - os: ubuntu-latest
-            artifact_name: linux
-            executable: TomatoNovelDownloader
-            debug_executable: TomatoNovelDownloader-debug
-          - os: macos-latest
-            artifact_name: macos
-            executable: TomatoNovelDownloader
-            debug_executable: TomatoNovelDownloader-debug
-    
-    runs-on: ${{ matrix.os }}
-    
+          - variant: release
+            spec: build.spec
+            exe: TomatoNovelDownloader.exe
+            artifact_name: TomatoNovelDownloader-windows
+          - variant: debug
+            spec: debug.spec
+            exe: TomatoNovelDownloader-debug.exe
+            artifact_name: TomatoNovelDownloader-debug-windows
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-      
-    - name: 设置Python环境
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        
-    - name: 生成版本号并更新version.py
-      id: version
-      shell: bash
-      run: |
-        VERSION=$(python -c "import datetime; print(datetime.datetime.now().strftime('%Y.%m.%d.%H%M'))")+$(echo ${{ github.sha }} | cut -c1-7)
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-        echo "Generated version: $VERSION"
-        
-        # 生成构建时间
-        BUILD_TIME=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')
-        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
-        echo "Build time: $BUILD_TIME"
-        
-        # 使用Python脚本更新version.py文件
-        export VERSION
-        python << 'PYTHON_SCRIPT'
-        import os
-        version = os.environ.get('VERSION', '1.0.0')
-        content = f'''# -*- coding: utf-8 -*-
-        """
-        版本信息文件
-        """
-        
-        __version__ = "{version}"
-        __author__ = "Tomato Novel Downloader"
-        __description__ = "A modern novel downloader with GitHub auto-update support"
-        __github_repo__ = "POf-L/Fanqie-novel-Downloader"
-        '''
-        
-        with open('version.py', 'w', encoding='utf-8') as f:
-            f.write(content)
-            
-        print(f"Updated version.py with version: {version}")
-        PYTHON_SCRIPT
-        
-        echo "version.py content:"
-        cat version.py
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: 安装系统依赖 (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y python3-tk tk-dev
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: 安装系统依赖 (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew install tcl-tk || true
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.5,<7" "pyinstaller-hooks-contrib>=2024.7"
 
-    - name: 安装系统依赖 (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        # 设置UTF-8编码环境变量
-        echo "PYTHONIOENCODING=utf-8" >> $env:GITHUB_ENV
-        echo "PYTHONUTF8=1" >> $env:GITHUB_ENV
-        # Windows通常自带tkinter，但确保PyInstaller能找到必要的DLL
-        echo "Windows系统依赖检查完成"
+      - name: Build (${{ matrix.variant }})
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm ${{ matrix.spec }}
 
-    - name: 缓存Python依赖
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+      - name: Show dist contents
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse dist | Select-Object FullName, Length
 
-    - name: 升级pip
-      run: |
-        python -m pip install --upgrade pip
+      - name: Upload artifact (${{ matrix.variant }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.exe }}
+          if-no-files-found: error
+          retention-days: 7
 
-    - name: 安装依赖
-      run: |
-        pip install -r requirements.txt
-        pip install pyinstaller
-        # 确保Pillow完整安装
-        pip install --force-reinstall Pillow
-
-    - name: 验证依赖安装
-      env:
-        PYTHONIOENCODING: utf-8
-        PYTHONUTF8: 1
-      run: |
-        python -c "import requests, PIL, ebooklib, bs4, fake_useragent, tqdm; print('All dependencies installed successfully')"
-        python -c "from PIL import Image, ImageTk, ImageDraw, ImageFile; print('PIL modules imported successfully')"
-        python -c "import PIL.JpegImagePlugin, PIL.PngImagePlugin; print('PIL image plugins loaded successfully')"
-        python -c "print('PIL version:', PIL.__version__)"
-        python -c "print('PIL features:', PIL.features.get_supported())"
-        
-    - name: 测试封面下载功能
-      env:
-        PYTHONIOENCODING: utf-8
-        PYTHONUTF8: 1
-      run: |
-        python -c "
-        import requests
-        from PIL import Image
-        from io import BytesIO
-        import sys
-        
-        # 测试下载一张测试图片
-        test_url = 'https://httpbin.org/image/jpeg'
-        try:
-            print('正在测试图片下载...')
-            resp = requests.get(test_url, timeout=10)
-            resp.raise_for_status()
-            print(f'图片下载成功，大小: {len(resp.content)} bytes')
-            
-            # 测试PIL处理
-            img = Image.open(BytesIO(resp.content))
-            print(f'图片加载成功: {img.format}, {img.size}, {img.mode}')
-            
-            # 测试缩放
-            resized = img.resize((100, 100))
-            print(f'图片缩放成功: {resized.size}')
-            
-        except Exception as e:
-            print(f'图片处理测试失败: {e}')
-            sys.exit(1)
-        "
-        
-    - name: 执行封面功能测试
-      env:
-        PYTHONIOENCODING: utf-8
-        PYTHONUTF8: 1
-      run: |
-        if [ -f "test_cover.py" ]; then
-          echo "运行封面功能测试..."
-          python test_cover.py
-        else
-          echo "测试脚本不存在，跳过测试"
-        fi
-
-    - name: 检查构建脚本
-      run: |
-        if [ -f "build_app.py" ]; then
-          echo "Found build script build_app.py"
-        else
-          echo "Build script not found, using default PyInstaller command"
-        fi
-      shell: bash
-
-    - name: 构建分发版应用
-      env:
-        PYTHONIOENCODING: utf-8
-        PYTHONUTF8: 1
-      run: |
-        echo "正在构建分发版..."
-        if [ -f "build_app.py" ]; then
-          python build_app.py
-        else
-          # 默认构建命令
-          if [ -f "gui.py" ]; then
-            pyinstaller --onefile --windowed --name=TomatoNovelDownloader gui.py
-          elif [ -f "main.py" ]; then
-            pyinstaller --onefile --name=TomatoNovelDownloader main.py
-          else
-            echo "未找到主程序文件"
-            exit 1
-          fi
-        fi
-      shell: bash
-      
-    - name: 构建 Debug 版应用
-      env:
-        PYTHONIOENCODING: utf-8
-        PYTHONUTF8: 1
-      run: |
-        echo "正在构建 Debug 版..."
-        # 清理之前的构建文件
-        rm -rf build/ *.spec || true
-        
-        # 使用debug.spec构建Debug版本
-        if [ -f "debug.spec" ]; then
-          echo "使用debug.spec构建..."
-          pyinstaller debug.spec --clean --noconfirm
-        else
-          # 直接使用命令行构建Debug版
-          pyinstaller --onefile --console --name=${{ matrix.debug_executable }} \
-            --hidden-import=bs4 \
-            --hidden-import=fake_useragent \
-            --hidden-import=tqdm \
-            --hidden-import=requests \
-            --hidden-import=urllib3 \
-            --hidden-import=ebooklib \
-            --hidden-import=PIL \
-            --hidden-import=PIL.Image \
-            --hidden-import=PIL.ImageTk \
-            --hidden-import=PIL.ImageDraw \
-            --hidden-import=PIL.ImageFile \
-            --hidden-import=PIL.ImageFont \
-            --hidden-import=PIL.ImageOps \
-            --hidden-import=PIL.JpegImagePlugin \
-            --hidden-import=PIL.PngImagePlugin \
-            --hidden-import=PIL.GifImagePlugin \
-            --hidden-import=PIL.BmpImagePlugin \
-            --hidden-import=PIL.WebPImagePlugin \
-            --hidden-import=PIL._imaging \
-            --collect-submodules=PIL \
-            --debug=imports \
-            gui.py
-        fi
-      shell: bash
-
-    - name: 验证构建结果
-      run: |
-        echo "检查构建结果..."
-        ls -la dist/ || echo "dist directory does not exist"
-        
-        # 检查分发版
-        if [ -f "dist/${{ matrix.executable }}" ]; then
-          echo "Release build successful: dist/${{ matrix.executable }}"
-          echo "Release executable size: $(ls -lh dist/${{ matrix.executable }} | awk '{print $5}')"
-        else
-          echo "Release build failed, executable not found"
-          exit 1
-        fi
-        
-        # 检查Debug版
-        if [ -f "dist/${{ matrix.debug_executable }}" ]; then
-          echo "Debug build successful: dist/${{ matrix.debug_executable }}"
-          echo "Debug executable size: $(ls -lh dist/${{ matrix.debug_executable }} | awk '{print $5}')"
-        else
-          echo "Debug build failed, executable not found"
-          exit 1
-        fi
-        
-        echo "两个版本都构建成功！"
-      shell: bash
-
-    - name: 创建发布包
-      run: |
-        mkdir -p release
-        
-        # 复制分发版
-        cp "dist/${{ matrix.executable }}" "release/"
-        
-        # 复制Debug版
-        cp "dist/${{ matrix.debug_executable }}" "release/"
-        
-        # 创建 README文件说明两个版本的区别
-        cat > release/README.txt << 'EOF'
-Tomato Novel Downloader v${{ steps.version.outputs.VERSION }}
-
-包含两个版本：
-
-1. ${{ matrix.executable }} - 分发版
-   - 正式版本，无控制台输出
-   - 适合日常使用
-
-2. ${{ matrix.debug_executable }} - 调试版
-   - 包含详细的控制台输出
-   - 方便排查问题（如封面加载失败等）
-EOF
-        
-        # 创建压缩包
-        cd release
-        if [ "${{ runner.os }}" = "Windows" ]; then
-          7z a "../TomatoNovelDownloader-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_name }}.zip" .
-        else
-          zip -r "../TomatoNovelDownloader-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_name }}.zip" .
-        fi
-        cd ..
-        
-        echo "发布包创建成功，包含分发版和Debug版"
-      shell: bash
-
-    - name: 上传构建产物
-      uses: actions/upload-artifact@v4
-      with:
-        name: TomatoNovelDownloader-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_name }}
-        path: |
-          TomatoNovelDownloader-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_name }}.zip
-        
-  release:
-    needs: build
+  attach-to-release:
+    name: Attach artifacts to Release (tag only)
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build-windows
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    permissions:
-      contents: write
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-    - name: 下载所有构建产物
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts/
-
-    - name: 获取版本号和构建时间
-      id: get_version
-      run: |
-        # 从文件名中提取版本号
-        VERSION=$(find artifacts -name "TomatoNovelDownloader-*" -type d | head -1 | sed 's/.*TomatoNovelDownloader-\(.*\)-.*/\1/')
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-        echo "Found version: $VERSION"
-        
-        # 生成构建时间（中国时区）
-        BUILD_TIME=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')
-        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
-        echo "Build time: $BUILD_TIME"
-
-    - name: 整理发布文件
-      run: |
-        mkdir -p release
-        find artifacts -name "*.zip" -exec cp {} release/ \;
-        ls -la release/
-
-    - name: 创建Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: v${{ steps.get_version.outputs.VERSION }}
-        name: TomatoNovelDownloader v${{ steps.get_version.outputs.VERSION }}
-        body: |
-          ## 🚀 自动构建版本 ${{ steps.get_version.outputs.VERSION }}
-
-          **构建信息:**
-          - 构建时间: ${{ steps.get_version.outputs.BUILD_TIME }} (UTC+8)
-          - 提交哈希: ${{ github.sha }}
-          - 分支: ${{ github.ref_name }}
-
-          **下载说明:**
-          - Windows: `TomatoNovelDownloader-${{ steps.get_version.outputs.VERSION }}-windows.zip`
-          - Linux: `TomatoNovelDownloader-${{ steps.get_version.outputs.VERSION }}-linux.zip`
-          - macOS: `TomatoNovelDownloader-${{ steps.get_version.outputs.VERSION }}-macos.zip`
-
-          **更新内容:**
-          ${{ github.event.head_commit.message }}
-
-        files: release/*
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
