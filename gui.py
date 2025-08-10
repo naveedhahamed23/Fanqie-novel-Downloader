@@ -847,6 +847,22 @@ class ModernNovelDownloaderGUI:
         cover_url = novel.get('thumb_url') or novel.get('expand_thumb_url') or novel.get('audio_thumb_url_hd')
         print(f"尝试加载封面: {novel.get('book_name', '未知')} - URL: {cover_url}")
         
+        # 调试：显示所有可能的封面URL
+        debug_urls = {
+            'thumb_url': novel.get('thumb_url'),
+            'expand_thumb_url': novel.get('expand_thumb_url'), 
+            'audio_thumb_url_hd': novel.get('audio_thumb_url_hd')
+        }
+        print(f"所有封面URL选项: {debug_urls}")
+        
+        # 调试：检查PIL导入状态
+        try:
+            import PIL
+            from PIL import Image, ImageTk
+            print(f"PIL版本: {PIL.__version__}, Image模块: {Image}, ImageTk模块: {ImageTk}")
+        except ImportError as e:
+            print(f"PIL导入失败: {e}")
+        
         if cover_url:
             def load_cover():
                 try:
@@ -1058,7 +1074,20 @@ class ModernNovelDownloaderGUI:
     
     def download_image(self, url, size=(120, 160)):
         """下载并调整图片大小"""
+        print(f"=== 开始下载图片 ===")
+        print(f"原始URL: {url}")
+        print(f"目标尺寸: {size}")
+        
         if not url:
+            print("URL为空，返回None")
+            return None
+            
+        # 调试：检查当前PIL模块状态
+        try:
+            from PIL import Image, ImageTk
+            print(f"PIL模块检查通过")
+        except ImportError as e:
+            print(f"CRITICAL: PIL模块导入失败: {e}")
             return None
             
         try:
