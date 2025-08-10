@@ -1,72 +1,50 @@
 name: Build Release and Debug
 
 on:
-  workflow_dispatch:
-    inputs:
-      note:
-        description: 'Manual trigger for Windows build (Release & Debug)'
-        required: false
-        default: ''
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
-    paths:
-      - '**/*.py'
-      - 'build.spec'
-      - 'debug.spec'
-      - '.github/workflows/build-release.yml'
-  pull_request:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: build-release-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
-    name: ${{ matrix.config.os }} PyInstaller (${{ matrix.config.variant }}) 🚀
-    runs-on: ${{ matrix.config.os }}
     strategy:
       fail-fast: false
       matrix:
-        # 使用GitHub免费最强大的 runner 🆓✨
-        config:
-          - os: windows-2022            # 免费最强Windows: 4核CPU, 16GB RAM, 14GB SSD
+        include:
+          # Windows 构建
+          - os: windows-latest
             variant: release
-            spec: build.spec
-            exe: TomatoNovelDownloader.exe
-            artifact_name: TomatoNovelDownloader-windows-x64
-          - os: windows-2022
+            executable: TomatoNovelDownloader.exe
+            artifact_name: TomatoNovelDownloader-windows
+          - os: windows-latest
             variant: debug
-            spec: debug.spec
-            exe: TomatoNovelDownloader-debug.exe
-            artifact_name: TomatoNovelDownloader-debug-windows-x64
-          - os: ubuntu-22.04            # 免费最强Ubuntu: 4核CPU, 16GB RAM, 14GB SSD  
+            executable: TomatoNovelDownloader-debug.exe
+            artifact_name: TomatoNovelDownloader-debug-windows
+          # Linux 构建
+          - os: ubuntu-latest
             variant: release
-            spec: build.spec
-            exe: TomatoNovelDownloader
-            artifact_name: TomatoNovelDownloader-linux-x64
-          - os: ubuntu-22.04
+            executable: TomatoNovelDownloader
+            artifact_name: TomatoNovelDownloader-linux
+          - os: ubuntu-latest
             variant: debug
-            spec: debug.spec
-            exe: TomatoNovelDownloader-debug
-            artifact_name: TomatoNovelDownloader-debug-linux-x64
-          - os: macos-14                # 免费最强macOS: 3核Apple M1, 14GB RAM, 14GB SSD
+            executable: TomatoNovelDownloader-debug
+            artifact_name: TomatoNovelDownloader-debug-linux
+          # macOS 构建
+          - os: macos-latest
             variant: release
-            spec: build.spec
-            exe: TomatoNovelDownloader
-            artifact_name: TomatoNovelDownloader-macos-arm64
-          - os: macos-14
+            executable: TomatoNovelDownloader
+            artifact_name: TomatoNovelDownloader-macos
+          - os: macos-latest
             variant: debug
-            spec: debug.spec
-            exe: TomatoNovelDownloader-debug
-            artifact_name: TomatoNovelDownloader-debug-macos-arm64
+            executable: TomatoNovelDownloader-debug
+            artifact_name: TomatoNovelDownloader-debug-macos
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} - ${{ matrix.variant }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,71 +65,76 @@ jobs:
         run: |
           brew install tcl-tk || true
 
-      - name: 充分利用缓存加速依赖安装 💾
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/pip
-            ~/.cache/pyinstaller
-          key: ${{ matrix.config.os }}-${{ matrix.config.variant }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ matrix.config.os }}-${{ matrix.config.variant }}-pip-
-            ${{ matrix.config.os }}-pip-
-            
-      - name: 高速安装依赖 ⚡
-        shell: bash  # 强制使用bash解决跨平台兼容性
+      - name: Install dependencies
         run: |
-          # 使用最快的pip配置和多线程安装
-          python -m pip install -U pip setuptools wheel --disable-pip-version-check --no-warn-script-location
-          # 并行下载和安装，利用多核CPU
-          pip install --upgrade -r requirements.txt
-          pip install --upgrade "pyinstaller>=6.5,<7" "pyinstaller-hooks-contrib>=2024.7"
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-      - name: Build (${{ matrix.config.variant }}) 🚀
-        env:
-          # 设置环境变量以充分利用免费runner的所有CPU核心
-          PYINSTALLER_COMPILE_PROCESSES: 0  # 使用所有可用CPU核心(4核)
-          PYTHONOPTIMIZE: 2                 # 最高级别Python优化
-          OMP_NUM_THREADS: 4                 # 充分利用免费runner的4个CPU核心
-        shell: bash  # 强制使用bash解决Windows PowerShell问题
+      - name: Build application (${{ matrix.variant }})
         run: |
-          echo "🆓✨ 开始免费最强性能构建，使用 $(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo '4') 个CPU核心, 16GB内存"
-          # 免费runner最大化性能优化PyInstaller构建参数
-          python -m PyInstaller \
-            --clean \
-            --noconfirm \
-            --log-level=ERROR \
-            --workpath=./build \
-            --distpath=./dist \
-            --onefile \
-            --optimize=2 \
-            --strip \
-            --noupx \
-            --exclude-module matplotlib \
-            --exclude-module pandas \
-            --exclude-module numpy \
-            --exclude-module scipy \
-            ${{ matrix.config.spec }}
-          echo "✅ 构建完成！文件大小: $(ls -lh dist/${{ matrix.config.exe }} 2>/dev/null | awk '{print $5}' || echo 'Unknown')"
+          if [ "${{ matrix.variant }}" == "debug" ]; then
+            # Debug版本 - 带控制台
+            pyinstaller --onefile --console --name=${{ matrix.executable }} \
+              --hidden-import=bs4 \
+              --hidden-import=fake_useragent \
+              --hidden-import=tqdm \
+              --hidden-import=requests \
+              --hidden-import=urllib3 \
+              --hidden-import=ebooklib \
+              --hidden-import=PIL \
+              --hidden-import=PIL.Image \
+              --hidden-import=PIL.ImageTk \
+              --hidden-import=PIL.ImageDraw \
+              --hidden-import=PIL.ImageFile \
+              --hidden-import=PIL.JpegImagePlugin \
+              --hidden-import=PIL.PngImagePlugin \
+              gui.py
+          else
+            # Release版本 - 窗口模式
+            pyinstaller --onefile --windowed --name=${{ matrix.executable }} \
+              --hidden-import=bs4 \
+              --hidden-import=fake_useragent \
+              --hidden-import=tqdm \
+              --hidden-import=requests \
+              --hidden-import=urllib3 \
+              --hidden-import=ebooklib \
+              --hidden-import=PIL \
+              --hidden-import=PIL.Image \
+              --hidden-import=PIL.ImageTk \
+              --hidden-import=PIL.ImageDraw \
+              --hidden-import=PIL.ImageFile \
+              --hidden-import=PIL.JpegImagePlugin \
+              --hidden-import=PIL.PngImagePlugin \
+              gui.py
+          fi
+        shell: bash
 
-      - name: Show dist contents
+      - name: Verify build
         run: |
-          ls -la dist/ || dir dist\
+          ls -la dist/
+          if [ -f "dist/${{ matrix.executable }}" ]; then
+            echo "✅ Build successful: ${{ matrix.executable }}"
+            echo "File size: $(ls -lh dist/${{ matrix.executable }} | awk '{print $5}')"
+          else
+            echo "❌ Build failed: ${{ matrix.executable }} not found"
+            exit 1
+          fi
+        shell: bash
 
-      - name: Upload artifact (${{ matrix.config.variant }})
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.config.artifact_name }}
-          path: dist/${{ matrix.config.exe }}
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.executable }}
           if-no-files-found: error
-          retention-days: 7
-          compression-level: 9  # 最高压缩级别
 
-  attach-to-release:
-    name: Attach artifacts to Release
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+  release:
+    name: Create Release
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -159,13 +142,7 @@ jobs:
       - name: Generate version
         id: version
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            # 如果是tag，使用tag名称
-            VERSION=${GITHUB_REF#refs/tags/}
-          else
-            # 如果是main分支，生成自动版本号
-            VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
-          fi
+          VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Generated version: $VERSION"
 
@@ -174,7 +151,7 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create/Update GitHub Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
@@ -189,16 +166,9 @@ jobs:
             - 提交者: ${{ github.event.head_commit.author.name }}
 
             **支持平台:**
-            - 💻 Windows (x64): `TomatoNovelDownloader-windows.exe` + debug版
+            - 💻 Windows (x64): `TomatoNovelDownloader-windows` + debug版
             - 🐧 Linux (x64): `TomatoNovelDownloader-linux` + debug版  
-            - 🍎 macOS (Apple Silicon): `TomatoNovelDownloader-macos-arm64` + debug版
-
-            **版本特性:**
-            - ✅ 分发版和Debug版双构建支持
-            - ✅ Debug版本包含详细日志，便于问题排查
-            - ✅ 增强的封面下载和PIL图片处理
-            - ✅ 跨平台支持（Windows/Linux/macOS）
-            - 🚀 使用GitHub高性能 runner加速构建
+            - 🍎 macOS: `TomatoNovelDownloader-macos` + debug版
 
             **使用说明:**
             - 分发版：正常使用的版本，无控制台输出
