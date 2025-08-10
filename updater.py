@@ -119,23 +119,14 @@ class UpdateChecker:
             latest_version = latest_release['version']
             current_version = self.current_version
             
-            print(f"版本检查 - GitHub最新版本: {latest_version}")
-            print(f"版本检查 - 当前版本: {current_version}")
-            print(f"版本检查 - 最新版本是时间戳格式: {self._is_timestamp_version(latest_version)}")
-            print(f"版本检查 - 当前版本是时间戳格式: {self._is_timestamp_version(current_version)}")
-            
             # 如果版本号包含日期格式（YYYY.MM.DD.HHMM+hash），使用字符串比较
             if self._is_timestamp_version(latest_version) or self._is_timestamp_version(current_version):
-                result = self._compare_timestamp_versions(latest_version, current_version)
-                print(f"使用时间戳比较，结果: {result}")
-                return result
+                return self._compare_timestamp_versions(latest_version, current_version)
             
             # 传统版本号使用packaging.version比较
             latest_ver = version.parse(latest_version)
             current_ver = version.parse(current_version)
-            result = latest_ver > current_ver
-            print(f"使用传统版本比较，结果: {result}")
-            return result
+            return latest_ver > current_ver
         except Exception as e:
             print(f"版本比较失败: {e}")
             return False
@@ -152,36 +143,26 @@ class UpdateChecker:
         格式: YYYY.MM.DD.HHMM+hash
         """
         try:
-            print(f"版本比较调试 - 最新版本: '{latest}', 当前版本: '{current}'")
-            
             # 首先检查完整版本号是否相同
             if latest.strip() == current.strip():
-                print(f"完整版本号相同，无需更新")
                 return False
             
             # 提取时间戳部分进行比较
             latest_timestamp = latest.split('+')[0] if '+' in latest else latest
             current_timestamp = current.split('+')[0] if '+' in current else current
             
-            print(f"提取的时间戳 - 最新: '{latest_timestamp}', 当前: '{current_timestamp}'")
-            
             # 如果是传统版本号，认为较旧
             if not self._is_timestamp_version(current):
-                print(f"当前版本 {current} 不是时间戳格式，认为有更新")
                 return True
             
             # 时间戳比较：较新的时间戳表示更新的版本
             if latest_timestamp == current_timestamp:
-                print(f"时间戳相同但hash可能不同，检查完整版本")
                 # hash不同也认为是不同版本，但通常不需要更新
                 return False
             
-            has_update = latest_timestamp > current_timestamp
-            print(f"时间戳比较结果: {has_update} ('{latest_timestamp}' > '{current_timestamp}')")
-            return has_update
+            return latest_timestamp > current_timestamp
         except Exception as e:
             print(f"版本比较异常: {e}")
-            # 出错时，保守地认为有更新
             return False
     
     def get_update_info(self) -> Optional[Dict[str, Any]]:

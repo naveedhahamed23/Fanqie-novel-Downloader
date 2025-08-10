@@ -9,7 +9,25 @@ permissions:
   contents: write
 
 jobs:
+  # 生成版本号的job
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      build_time: ${{ steps.version.outputs.BUILD_TIME }}
+    steps:
+      - name: Generate version
+        id: version
+        run: |
+          VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
+          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+          echo "Build time: $BUILD_TIME"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -65,15 +83,12 @@ jobs:
         run: |
           brew install tcl-tk || true
 
-      - name: Generate version and update version.py
-        id: version
+      - name: Update version.py
         run: |
-          VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
-          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
-          echo "Generated version: $VERSION"
-          echo "Build time: $BUILD_TIME"
+          VERSION="${{ needs.version.outputs.version }}"
+          BUILD_TIME="${{ needs.version.outputs.build_time }}"
+          echo "Using version: $VERSION"
+          echo "Using build time: $BUILD_TIME"
           
           # 创建version.py文件
           echo "# -*- coding: utf-8 -*-" > version.py
@@ -164,22 +179,12 @@ jobs:
   release:
     name: Create Release
     if: github.ref == 'refs/heads/main'
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Get version from build
-        id: version
-        run: |
-          # 使用与build job中相同的逻辑生成版本号
-          VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
-          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
-          echo "Using version: $VERSION"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -189,13 +194,13 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.VERSION }}
-          name: TomatoNovelDownloader v${{ steps.version.outputs.VERSION }}
+          tag_name: v${{ needs.version.outputs.version }}
+          name: TomatoNovelDownloader v${{ needs.version.outputs.version }}
           body: |
             ## ${{ github.event.head_commit.message }}
             
             **构建信息:**
-            - 构建时间: ${{ steps.version.outputs.BUILD_TIME }}
+            - 构建时间: ${{ needs.version.outputs.build_time }}
             - 提交哈希: ${{ github.sha }}
             - 分支: ${{ github.ref_name }}
             - 提交者: ${{ github.event.head_commit.author.name }}
