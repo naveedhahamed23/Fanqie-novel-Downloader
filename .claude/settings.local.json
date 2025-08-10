@@ -4,7 +4,8 @@
       "mcp__chrome-mcp-server__chrome_get_web_content",
       "mcp__chrome-mcp-server__chrome_navigate",
       "mcp__chrome-mcp-server__chrome_get_interactive_elements",
-      "mcp__chrome-mcp-server__chrome_click_element"
+      "mcp__chrome-mcp-server__chrome_click_element",
+      "Bash(git add:*)"
     ],
     "deny": []
   }

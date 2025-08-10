@@ -143,8 +143,11 @@ jobs:
         id: version
         run: |
           VERSION=$(date -u +'%Y.%m.%d.%H%M')+$(echo ${{ github.sha }} | cut -c1-7)
+          BUILD_TIME=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
           echo "Generated version: $VERSION"
+          echo "Build time: $BUILD_TIME"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -160,7 +163,7 @@ jobs:
             ## ${{ github.event.head_commit.message }}
             
             **构建信息:**
-            - 构建时间: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+            - 构建时间: ${{ steps.version.outputs.BUILD_TIME }}
             - 提交哈希: ${{ github.sha }}
             - 分支: ${{ github.ref_name }}
             - 提交者: ${{ github.event.head_commit.author.name }}
