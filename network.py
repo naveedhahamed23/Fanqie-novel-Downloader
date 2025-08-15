@@ -165,6 +165,10 @@ class NetworkManager:
                     challenge_data = challenge_res.json()
                     captcha_url = challenge_data.get("challenge_url")
                     if captcha_url:
+                        # 修复缺少端口号的问题
+                        if "dlbkltos.s7123.xyz" in captcha_url and ":5080" not in captcha_url:
+                            # 在域名后添加端口号
+                            captcha_url = captcha_url.replace("dlbkltos.s7123.xyz", "dlbkltos.s7123.xyz:5080")
                         # 支持环境变量以便GUI/非交互环境
                         verification_token = os.environ.get("TOMATO_VERIFICATION_TOKEN")
                         
