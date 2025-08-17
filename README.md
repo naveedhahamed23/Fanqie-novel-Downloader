@@ -1,120 +1,199 @@
-# Tomato Novel Downloader
+<div align="center">
 
-基于
-https://github.com/Dlmily/Tomato-Novel-Downloader-Lite
-的番茄小说下载器，支持GUI界面和命令行使用。
+<h1>🍅 Tomato Novel Downloader</h1>
 
-## 🚀 主要修复内容
+<p>现代化 · 高颜值 · 即开即用的番茄小说下载器</p>
 
-### 1. API处理逻辑修复
-- 修复了 `enhanced_downloader.py` 中 `down_text` 方法的API处理bug
-- 修复了 `tomato_novel_api.py` 中的API调用逻辑
-- 按照参考代码正确实现了所有API类型（fanqie_sdk, fqweb, qyuing, lsjk）的处理
+<p>
+  <a href="https://github.com/POf-L/Fanqie-novel-Downloader/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/POf-L/Fanqie-novel-Downloader?style=for-the-badge"></a>
+  <a href="https://github.com/POf-L/Fanqie-novel-Downloader/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/POf-L/Fanqie-novel-Downloader/total?style=for-the-badge"></a>
+  <a href="https://github.com/POf-L/Fanqie-novel-Downloader/actions"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/POf-L/Fanqie-novel-Downloader/release.yml?style=for-the-badge&label=CI"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue?style=for-the-badge">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8A2BE2?style=for-the-badge">
+  <img alt="Last Commit" src="https://img.shields.io/github/last-commit/POf-L/Fanqie-novel-Downloader?style=for-the-badge">
+  <a href="https://github.com/POf-L/Fanqie-novel-Downloader/issues"><img alt="Issues" src="https://img.shields.io/github/issues/POf-L/Fanqie-novel-Downloader?style=for-the-badge"></a>
+  <img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge">
 
-### 2. 线程安全改进
-- 添加了全局线程锁 `print_lock` 确保日志输出的线程安全
-- 所有print语句都使用线程安全的方式输出
 
-### 3. 错误处理优化
-- 改善了API切换逻辑
-- 添加了完整的异常处理机制
-- 支持程序中断时的状态保存
+</p>
 
-### 4. 功能增强
-- 保持了原有的GUI进度回调功能
-- 添加了完整的命令行交互界面
-- 支持章节范围选择下载
-- 改进了EPUB格式的封面处理
+<p>
+  <a href="#-功能亮点">功能亮点</a> ·
+  <a href="#-快速开始">快速开始</a> ·
+  <a href="#-命令行用法">命令行用法</a> ·
+  <a href="#-配置与令牌">配置与令牌</a> ·
+  <a href="#-打包与发布">打包与发布</a> ·
+  <a href="#-常见问题">常见问题</a>
+</p>
 
-## 📁 文件结构
+</div>
 
-- `enhanced_downloader.py` - 增强型下载器，支持GUI回调
-- `tomato_novel_api.py` - API调用模块，包含完整的下载功能
-- `gui.py` - 图形用户界面
-- `updater.py` - 自动更新模块
-- `version.py` - 版本信息
+---
 
-## 🛠️ 使用方法
+## ⭐ 星标趋势
 
-### 命令行使用
+<p align="center">
+  <a href="https://star-history.com/#POf-L/Fanqie-novel-Downloader&Date">
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=POf-L/Fanqie-novel-Downloader&type=Date" width="85%">
+  </a>
+</p>
+
+---
+
+## 🖼️ 界面预览（示意）
+
+> 欢迎提交截图 PR 来替换示意图。
+
+<p align="center">
+  <img alt="GUI Screenshot Placeholder" src="https://img.shields.io/badge/GUI-Screenshot-999?style=for-the-badge" />
+</p>
+
+---
+
+
+## ✨ 功能亮点
+
+- 图形界面与命令行双形态：新手友好、进阶高效
+- 极速搜索与书籍信息展示，整本/按范围下载
+- 支持 TXT / EPUB 导出，封面与元数据自动处理（含 HEIC）
+- 多线程下载、失败自动重试、请求限速，稳定可靠
+- 自动检查更新（GitHub Releases），一键下载并重启生效
+
+> 参考并增强自 Dlmily/Tomato-Novel-Downloader-Lite，修复多个 API 逻辑并重构模块化架构。
+
+---
+
+## 🧭 目录结构
+
+- gui.py — 图形界面入口（Tkinter）
+- enhanced_downloader.py — 增强下载器（交互式 CLI）
+- tomato_novel_api.py — API/命令行工具（search/novel_info 等）
+- config.py — 全局配置（并发、重试、限速、导出等）
+- updater.py — 自动更新模块（GitHub Releases）
+- requirements.txt — 依赖清单
+
+---
+
+## 🚀 快速开始
+
+环境要求：Python 3.10+（Windows/macOS/Linux）。GUI 需 Tkinter（Linux 需要安装 tk）。
+
 ```bash
-# 直接运行增强下载器
-python enhanced_downloader.py
+python -m venv .venv
+# Windows
+.\.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
 
-# 测试API功能
-python tomato_novel_api.py test
-
-# 使用API模块
-python tomato_novel_api.py search "小说名"
-python tomato_novel_api.py novel_info "书籍ID"
+pip install -r requirements.txt
 ```
 
-### GUI使用
+- 启动 GUI：
 ```bash
 python gui.py
 ```
 
-## 🔧 主要改进
-
-1. **修复了关键bug**：
-   - qyuing API的内容获取逻辑
-   - lsjk API的响应处理
-   - 批量下载的数据处理
-
-2. **线程安全**：
-   - 所有日志输出都使用线程锁保护
-   - 避免了多线程环境下的输出混乱
-
-3. **错误处理**：
-   - 更完善的异常捕获和处理
-   - 程序中断时的状态保存
-   - API失败时的自动切换
-
-4. **用户体验**：
-   - 完整的命令行交互界面
-   - 实时进度显示
-   - 支持章节范围选择
-
-## 📋 依赖要求
-
-```
-requests
-bs4
-fake_useragent
-tqdm
-ebooklib
-PIL
-urllib3
-```
-
-## 🎯 测试
-
-运行测试命令验证修复效果：
+- 启动交互式 CLI（增强下载器）：
 ```bash
-python tomato_novel_api.py test
+python enhanced_downloader.py
 ```
 
-## 📝 更新日志
+---
 
-- 修复了API处理逻辑的关键bug
-- 添加了线程安全机制
-- 改善了错误处理和用户体验
-- 保持了原有GUI功能的完整性
+## ⌨️ 命令行用法
 
-## 🔄 自动更新与发布
+tomato_novel_api.py 支持：
 
-- 在 `version.py` 中维护当前版本号 `__version__`，并将 `__github_repo__` 设置为你的仓库（格式 `owner/repo`）。
-- 应用启动时会自动（可在设置中关闭）检查 GitHub Releases 的最新版本；也可在设置页点击“检查更新”。
-- 下载完成后将自动安装并重启。
+```bash
+# 搜索
+python tomato_novel_api.py search "盗墓"
 
-### GitHub Actions 自动发布
+# 获取书籍信息
+python tomato_novel_api.py novel_info 7143038691944959011
 
-本仓库提供工作流 `.github/workflows/release.yml`：
-- 推送形如 `v*` 的标签时，自动构建 Windows 可执行文件并上传到该 Release。
-- 也可在 Actions 页面手动触发工作流并指定 `tag`。
+# 其它命令
+python tomato_novel_api.py              # 打印帮助
+# 支持: search | novel_info | book_details | catalog | chapter_content | download_full
+```
 
-推荐流程：
-1. 修改 `version.py` 的 `__version__` 为新版本，例如 `1.2.3`；
-2. 提交并打标签：`git tag v1.2.3 && git push origin v1.2.3`；
-3. 等待 Actions 构建并把 `TomatoNovelDownloader_v1.2.3_windows_x64.exe` 上传到 Release；
-4. 客户端会检测到新版本并提示更新。
+---
+
+## ⚙️ 配置与令牌
+
+- 配置集中在 config.py，可调整并发数、重试、超时、限速、默认导出格式等
+- 部分数据源需要验证令牌。GUI 首次会弹窗引导；也可使用环境变量：
+
+```bash
+# Windows PowerShell
+$env:TOMATO_VERIFICATION_TOKEN = "你的令牌"
+# macOS/Linux
+export TOMATO_VERIFICATION_TOKEN="你的令牌"
+```
+
+---
+
+## 📦 导出与文件
+
+- 支持 txt 与 epub 导出（见 config.py 的 OUTPUT_CONFIG）
+- 支持 HEIC 封面（依赖 pillow-heif）
+
+---
+
+## 🏗️ 打包与发布
+
+本地打包（PyInstaller）：
+```bash
+pip install pyinstaller
+python build_app.py
+```
+
+CI/CD（GitHub Actions）：
+- 推送形如 v* 的标签触发构建并上传产物
+- 版本信息位于 version.py（__version__、__github_repo__）
+
+---
+
+---
+
+## 🧭 Roadmap
+
+- [ ] 增加批量任务队列与计划任务
+- [ ] 增强搜索源与可插拔源管理
+- [ ] 导出模板（含封面样式/章节样式预设）
+- [ ] 内置更新频道选择（稳定/测试）
+- [ ] 更丰富的日志与诊断页面
+
+---
+
+## 🤝 贡献
+
+欢迎 PR / Issue：
+- 修复 bug、补充文档与截图、改进交互
+- 新增数据源、导出格式、性能优化
+
+流程建议：
+1. Fork 仓库并新建分支
+2. 本地验证（GUI 与 CLI 至少一种）
+3. 提交 PR，说明变更点与验证方式
+
+---
+
+## 📣 支持与反馈
+
+- 提交 Issue：描述问题场景、日志、复现步骤
+- 功能建议：说明使用场景与期望交互
+
+如果你觉得项目好用，欢迎点亮 Star ✨
+
+
+## 🧰 常见问题
+
+- Linux 缺少 Tkinter：`sudo apt-get install -y python3-tk tk-dev`
+- fake-useragent 在部分网络环境可能失败：可临时固定 UA 或稍后重试
+- 请求失败较多：适当提高超时与限速（config.py: REQUEST_TIMEOUT、REQUEST_RATE_LIMIT）
+
+---
+
+## 📜 许可与声明
+
+本项目仅用于技术学习与交流，请遵守当地法律法规与网站使用条款，勿用于任何商业或非法用途。
