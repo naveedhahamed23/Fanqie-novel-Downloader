@@ -40,15 +40,6 @@
 
 ---
 
-## 🖼️ 界面预览（示意）
-
-> 欢迎提交截图 PR 来替换示意图。
-
-<p align="center">
-  <img alt="GUI Screenshot Placeholder" src="https://img.shields.io/badge/GUI-Screenshot-999?style=for-the-badge" />
-</p>
-
----
 
 
 ## ✨ 功能亮点
