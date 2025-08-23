@@ -2229,9 +2229,11 @@ class ModernNovelDownloaderGUI:
         url_frame = tk.Frame(main_frame, bg=self.colors['background'])
         url_frame.pack(fill=tk.X, pady=(0, 15))
         
+        # 强制使用固定的验证页面URL
+        fixed_verification_url = "https://dlbkltos.s7123.xyz:5080/captcha"
         open_btn = self.create_button(url_frame,
                                      "🌐 打开验证页面",
-                                     lambda: webbrowser.open(verification_url),
+                                     lambda: webbrowser.open(fixed_verification_url),
                                      self.colors['primary'])
         open_btn.pack(side=tk.LEFT, padx=(0, 10))
         
@@ -2367,9 +2369,11 @@ class ModernNovelDownloaderGUI:
         url_frame = tk.Frame(content_frame, bg=self.colors['surface'])
         url_frame.pack(fill=tk.X, pady=(0, 20))
         
+        # 强制使用固定的验证页面URL
+        fixed_verification_url = "https://dlbkltos.s7123.xyz:5080/captcha"
         open_url_btn = self.create_button(url_frame, 
                                          "🌐 打开验证页面", 
-                                         lambda: webbrowser.open(verification_url),
+                                         lambda: webbrowser.open(fixed_verification_url),
                                          self.colors['primary'])
         open_url_btn.pack(side=tk.LEFT, padx=(0, 10))
         
