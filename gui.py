@@ -2905,9 +2905,10 @@ API数量: {saved_api_count}个
             # 创建批处理脚本或 shell 脚本启动外部更新程序
             if platform.system() == 'Windows':
                 # Windows 批处理脚本
+                escaped_json = update_info_json.replace('"', '\\"')
                 batch_script = f"""@echo off
 cd /d "{script_dir}"
-python "{external_script}" "{update_info_json.replace('"', '\\"')}"
+python "{external_script}" "{escaped_json}"
 """
                 batch_file = os.path.join(tempfile.gettempdir(), 'start_update.bat')
                 with open(batch_file, 'w', encoding='gbk') as f:
