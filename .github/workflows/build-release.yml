@@ -121,50 +121,7 @@ jobs:
 
       - name: Build application (${{ matrix.variant }})
         run: |
-          if [ "${{ matrix.variant }}" == "debug" ]; then
-            # Debug版本 - 带控制台
-            NAME="${{ matrix.executable }}"; NAME="${NAME%.exe}"; pyinstaller --onefile --console --name="${NAME}" \
-
-              --hidden-import=bs4 \
-              --hidden-import=fake_useragent \
-              --hidden-import=fake_useragent.data \
-              --hidden-import=tqdm \
-              --hidden-import=requests \
-              --hidden-import=urllib3 \
-              --hidden-import=ebooklib \
-              --hidden-import=PIL \
-              --hidden-import=PIL.Image \
-              --hidden-import=PIL.ImageTk \
-              --hidden-import=PIL.ImageDraw \
-              --hidden-import=PIL.ImageFile \
-              --hidden-import=PIL.JpegImagePlugin \
-              --hidden-import=PIL.PngImagePlugin \
-              --hidden-import=pillow_heif \
-              --collect-data=fake_useragent \
-              gui.py
-          else
-            # Release版本 - 窗口模式
-            NAME="${{ matrix.executable }}"; NAME="${NAME%.exe}"; pyinstaller --onefile --windowed --name="${NAME}" \
-
-              --hidden-import=bs4 \
-              --hidden-import=fake_useragent \
-              --hidden-import=fake_useragent.data \
-              --hidden-import=tqdm \
-              --hidden-import=requests \
-              --hidden-import=urllib3 \
-              --hidden-import=ebooklib \
-              --hidden-import=PIL \
-              --hidden-import=PIL.Image \
-              --hidden-import=PIL.ImageTk \
-              --hidden-import=PIL.ImageDraw \
-              --hidden-import=PIL.ImageFile \
-              --hidden-import=PIL.JpegImagePlugin \
-              --hidden-import=PIL.PngImagePlugin \
-              --hidden-import=pillow_heif \
-              --collect-data=fake_useragent \
-              gui.py
-          fi
-        shell: bash
+          python build_app.py --variant=${{ matrix.variant }} --target-name=${{ matrix.executable }}
 
       - name: Verify build
         run: |
