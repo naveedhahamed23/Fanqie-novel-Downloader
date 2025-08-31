@@ -1091,9 +1091,9 @@ def create_epub_book(name, author_name, description, chapter_results, chapters, 
 def Run(book_id, save_path, file_format='txt', start_chapter=None, end_chapter=None, gui_callback=None):
     """运行下载"""
 
-    # 检查下载功能是否被禁用
-    if not CONFIG.get("download_enabled", True):
-        error_msg = "章节下载功能已被禁用。如需启用，请修改config.py中的'download_enabled'设置为True"
+    # 检查章节范围下载功能是否被禁用
+    if not CONFIG.get("download_enabled", True) and (start_chapter is not None or end_chapter is not None):
+        error_msg = "章节范围下载功能已被禁用。如需启用，请修改config.py中的'download_enabled'设置为True"
         if gui_callback:
             if len(inspect.signature(gui_callback).parameters) > 1:
                 gui_callback(-1, error_msg)
@@ -1546,9 +1546,9 @@ class NovelDownloaderAPI:
     def run_download(self, book_id, save_path, file_format='txt', start_chapter=None, end_chapter=None, gui_callback=None):
         """运行下载（兼容GUI调用）"""
         try:
-            # 检查下载功能是否被禁用
-            if not CONFIG.get("download_enabled", True):
-                error_msg = "章节下载功能已被禁用。如需启用，请修改config.py中的'download_enabled'设置为True"
+            # 检查章节范围下载功能是否被禁用
+            if not CONFIG.get("download_enabled", True) and (start_chapter is not None or end_chapter is not None):
+                error_msg = "章节范围下载功能已被禁用。如需启用，请修改config.py中的'download_enabled'设置为True"
                 if self.current_progress_callback:
                     self.current_progress_callback(-1, error_msg)
                 elif gui_callback:

@@ -300,32 +300,7 @@ class ModernNovelDownloaderGUI:
                                    selectcolor=self.colors['surface'])
         epub_radio.pack(side=tk.LEFT, padx=(0, 10))
         
-        # 下载模式
-        mode_frame = tk.Frame(download_card, bg=self.colors['surface'])
-        mode_frame.pack(fill=tk.X, pady=(0, 15))
-        
-        tk.Label(mode_frame, text="下载模式:", 
-                font=self.fonts['body'], 
-                bg=self.colors['surface'], 
-                fg=self.colors['text_primary']).pack(side=tk.LEFT)
-        
-        self.mode_var = tk.StringVar(value=self.config.get('download_mode', 'full'))
-        self.mode_var.trace('w', lambda *args: self.save_config())  # 监听变化并保存
-        full_radio = tk.Radiobutton(mode_frame, text="整本下载", 
-                                   variable=self.mode_var, value="full",
-                                   font=self.fonts['body'], 
-                                   bg=self.colors['surface'], 
-                                   fg=self.colors['text_primary'],
-                                   selectcolor=self.colors['surface'])
-        full_radio.pack(side=tk.LEFT, padx=(20, 10))
-        
-        chapter_radio = tk.Radiobutton(mode_frame, text="章节下载", 
-                                      variable=self.mode_var, value="chapter",
-                                      font=self.fonts['body'], 
-                                      bg=self.colors['surface'], 
-                                      fg=self.colors['text_primary'],
-                                      selectcolor=self.colors['surface'])
-        chapter_radio.pack(side=tk.LEFT, padx=(0, 10))
+        # 移除章节下载模式选择，只保留整本下载
         
         # 下载按钮
         button_frame = tk.Frame(download_card, bg=self.colors['surface'])
@@ -544,7 +519,7 @@ class ModernNovelDownloaderGUI:
             config = {
                 'save_path': self.save_path_entry.get() if hasattr(self, 'save_path_entry') else os.getcwd(),
                 'file_format': self.format_var.get() if hasattr(self, 'format_var') else 'txt',
-                'download_mode': self.mode_var.get() if hasattr(self, 'mode_var') else 'full',
+                'download_mode': 'full',  # 固定为整本下载
                 'auto_check_update': self.auto_update_var.get() if hasattr(self, 'auto_update_var') else True
             }
             
@@ -1475,7 +1450,7 @@ class ModernNovelDownloaderGUI:
         book_id = self.book_id_entry.get().strip()
         save_path = self.save_path_entry.get().strip()
         file_format = self.format_var.get()
-        mode = self.mode_var.get()
+        mode = 'full'  # 固定为整本下载
         
         if not book_id:
             messagebox.showerror("错误", "请输入书籍ID")
@@ -1496,9 +1471,9 @@ class ModernNovelDownloaderGUI:
         self.log(f"开始下载书籍: {book_id}")
         
         # 在新线程中执行下载
-        threading.Thread(target=self._download_thread, args=(book_id, save_path, file_format, mode), daemon=True).start()
+        threading.Thread(target=self._download_thread, args=(book_id, save_path, file_format), daemon=True).start()
     
-    def _download_thread(self, book_id, save_path, file_format, mode):
+    def _download_thread(self, book_id, save_path, file_format):
         """下载线程函数 - 完全集成enhanced_downloader.py的高速下载功能"""
         try:
             # 检查API接口是否已经获取
@@ -1555,72 +1530,22 @@ class ModernNovelDownloaderGUI:
             
             self.root.after(0, lambda: self.progress_callback(10, f"准备使用enhanced_downloader.py的高速下载《{book_name}》..."))
             
-            if mode == "full":
-                # 整本下载 - 直接使用增强型下载器
-                self.root.after(0, lambda: self.progress_callback(15, f"启动enhanced_downloader.py高速下载模式..."))
-                
-                # 直接使用增强型下载器的run_download方法
-                downloader = self.api.enhanced_downloader
-                downloader.set_progress_callback(gui_progress_callback)
+            # 整本下载 - 直接使用增强型下载器（移除章节下载模式）
+            self.root.after(0, lambda: self.progress_callback(15, f"启动enhanced_downloader.py高速下载模式..."))
 
-                # 在线程中运行下载，传递GUI验证回调
-                downloader.run_download(book_id, save_path, file_format)
-                
-                # 检查是否取消
-                if downloader.is_cancelled:
-                    self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
-                    return
-                
-                # 完成消息由下载器内部处理，不需要在这里重复发送
-                
-            else:
-                # 章节下载模式
-                self.root.after(0, lambda: self.progress_callback(15, "章节下载模式：请选择章节范围..."))
-                
-                # 在主线程中创建章节选择对话框
-                chapter_range = None
-                def get_range():
-                    nonlocal chapter_range
-                    # 确保API已初始化
-                    if self.api is None:
-                        self.initialize_api()
-                    # 获取章节总数
-                    details_result = self.api.get_book_details(book_id)
-                    if details_result and details_result.get('data', {}).get('allItemIds'):
-                        total_chapters = len(details_result['data']['allItemIds'])
-                        chapter_range = self._get_chapter_range(total_chapters)
-                
-                self.root.after(0, get_range)
-                
-                # 等待用户选择
-                import time
-                timeout = 30  # 30秒超时
-                elapsed = 0
-                while chapter_range is None and elapsed < timeout:
-                    time.sleep(0.1)
-                    elapsed += 0.1
-                
-                if not chapter_range:
-                    self.root.after(0, lambda: self.progress_callback(0, "章节选择超时或用户取消"))
-                    return
-                
-                start_idx, end_idx = chapter_range
-                
-                self.root.after(0, lambda: self.progress_callback(20, f"使用enhanced_downloader.py高速下载章节 {start_idx+1}-{end_idx+1}..."))
-                
-                # 使用增强型下载器的范围下载功能
-                downloader = self.api.enhanced_downloader
-                downloader.set_progress_callback(gui_progress_callback)
+            # 直接使用增强型下载器的run_download方法
+            downloader = self.api.enhanced_downloader
+            downloader.set_progress_callback(gui_progress_callback)
 
-                # 在线程中运行下载
-                downloader.run_download(book_id, save_path, file_format, start_idx, end_idx)
-                
-                # 检查是否取消
-                if downloader.is_cancelled:
-                    self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
-                    return
-                
-                # 完成消息由下载器内部处理，不需要在这里重复发送
+            # 在线程中运行下载，传递GUI验证回调
+            downloader.run_download(book_id, save_path, file_format)
+
+            # 检查是否取消
+            if downloader.is_cancelled:
+                self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
+                return
+
+            # 完成消息由下载器内部处理，不需要在这里重复发送
                 
         except Exception as e:
             error_msg = str(e)
@@ -1632,82 +1557,7 @@ class ModernNovelDownloaderGUI:
                 self.api.set_progress_callback(None)
             self.root.after(0, self._download_finished)
     
-    def _get_chapter_range(self, total_chapters):
-        """获取章节范围选择"""
-        # 创建章节选择对话框
-        dialog = tk.Toplevel(self.root)
-        dialog.title("选择章节范围")
-        dialog.geometry("400x200")
-        dialog.configure(bg=self.colors['background'])
-        dialog.resizable(False, False)
-        
-        # 居中显示
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        result = {'range': None}
-        
-        # 标题
-        title_label = tk.Label(dialog, text=f"请选择要下载的章节范围 (共{total_chapters}章)", 
-                              font=self.fonts['subtitle'],
-                              bg=self.colors['background'],
-                              fg=self.colors['text_primary'])
-        title_label.pack(pady=20)
-        
-        # 输入框框架
-        input_frame = tk.Frame(dialog, bg=self.colors['background'])
-        input_frame.pack(pady=10)
-        
-        # 起始章节
-        tk.Label(input_frame, text="起始章节:", 
-                font=self.fonts['body'],
-                bg=self.colors['background'],
-                fg=self.colors['text_primary']).grid(row=0, column=0, padx=5)
-        
-        start_var = tk.StringVar(value="1")
-        start_entry = tk.Entry(input_frame, textvariable=start_var, width=10)
-        start_entry.grid(row=0, column=1, padx=5)
-        
-        # 结束章节
-        tk.Label(input_frame, text="结束章节:", 
-                font=self.fonts['body'],
-                bg=self.colors['background'],
-                fg=self.colors['text_primary']).grid(row=0, column=2, padx=5)
-        
-        end_var = tk.StringVar(value=str(total_chapters))
-        end_entry = tk.Entry(input_frame, textvariable=end_var, width=10)
-        end_entry.grid(row=0, column=3, padx=5)
-        
-        # 按钮框架
-        button_frame = tk.Frame(dialog, bg=self.colors['background'])
-        button_frame.pack(pady=20)
-        
-        def confirm():
-            try:
-                start = int(start_var.get())
-                end = int(end_var.get())
-                
-                if start < 1 or end > total_chapters or start > end:
-                    messagebox.showerror("错误", f"章节范围无效！请输入1-{total_chapters}之间的数字")
-                    return
-                
-                result['range'] = (start - 1, end - 1)  # 转换为0基索引
-                dialog.destroy()
-            except ValueError:
-                messagebox.showerror("错误", "请输入有效的数字")
-        
-        def cancel():
-            dialog.destroy()
-        
-        confirm_btn = self.create_button(button_frame, "确定", confirm, self.colors['success'])
-        confirm_btn.pack(side=tk.LEFT, padx=10)
-        
-        cancel_btn = self.create_button(button_frame, "取消", cancel, self.colors['error'])
-        cancel_btn.pack(side=tk.LEFT, padx=10)
-        
-        # 等待对话框关闭
-        dialog.wait_window()
-        return result['range']
+
     
     def _filter_watermark(self, text):
         """过滤章节内容中的水印"""
