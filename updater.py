@@ -423,16 +423,23 @@ class AutoUpdater:
         # 创建改进的批处理脚本
         batch_script = f"""
 @echo off
+setlocal enabledelayedexpansion
 echo 等待程序退出...
 
-REM 等待当前进程退出，最多等待30秒
+REM 强制结束当前进程
+taskkill /PID {current_pid} /F >nul 2>&1
+timeout /t 2 /nobreak > nul
+
+REM 等待进程完全退出，最多等待10秒
 set /a count=0
 :wait_loop
 tasklist /FI "PID eq {current_pid}" 2>nul | find "{current_pid}" >nul
 if errorlevel 1 goto process_ended
 set /a count+=1
-if %count% geq 30 (
-    echo 警告：程序未在预期时间内退出，强制继续更新
+if %count% geq 10 (
+    echo 警告：程序未在预期时间内退出，强制终止进程
+    taskkill /PID {current_pid} /F >nul 2>&1
+    timeout /t 1 /nobreak > nul
     goto process_ended
 )
 timeout /t 1 /nobreak > nul
@@ -441,42 +448,88 @@ goto wait_loop
 :process_ended
 echo 开始更新程序...
 
-REM 备份当前文件
-if exist "{current_exe}.backup" del "{current_exe}.backup"
+REM 备份当前文件（带重试机制）
+if exist "{current_exe}.backup" (
+    echo 删除旧备份文件...
+    set /a retry=0
+    :delete_backup_retry
+    del "{current_exe}.backup" 2>nul
+    if exist "{current_exe}.backup" (
+        set /a retry+=1
+        if !retry! lss 3 (
+            echo 重试删除备份文件 (!retry!/3)...
+            timeout /t 1 /nobreak > nul
+            goto delete_backup_retry
+        ) else (
+            echo 警告：无法删除旧备份文件，跳过备份步骤
+        )
+    )
+)
+
 if exist "{current_exe}" (
-    move "{current_exe}" "{current_exe}.backup"
+    echo 创建新备份文件...
+    move "{current_exe}" "{current_exe}.backup" 2>nul
     if errorlevel 1 (
-        echo 错误：无法备份当前程序文件
-        pause
-        goto cleanup
+        echo 错误：无法备份当前程序文件，尝试强制覆盖
+        REM 继续执行，不中断更新
     )
 )
 
 REM 移动新文件
-move /y "{exe_path}" "{current_exe}"
+echo 安装新版本...
+move /y "{exe_path}" "{current_exe}" 2>nul
 if errorlevel 1 (
     echo 错误：无法替换程序文件
     REM 尝试恢复备份
     if exist "{current_exe}.backup" (
-        move "{current_exe}.backup" "{current_exe}"
-        echo 已恢复原程序文件
+        move "{current_exe}.backup" "{current_exe}" 2>nul
+        if errorlevel 1 (
+            echo 错误：无法恢复备份文件
+        ) else (
+            echo 已恢复原程序文件
+        )
     )
-    pause
     goto cleanup
 )
 
 echo 更新成功完成
-REM 删除备份文件
-if exist "{current_exe}.backup" del "{current_exe}.backup"
+
+REM 删除备份文件（带重试机制）
+if exist "{current_exe}.backup" (
+    echo 清理备份文件...
+    set /a retry=0
+    :cleanup_backup_retry
+    del "{current_exe}.backup" 2>nul
+    if exist "{current_exe}.backup" (
+        set /a retry+=1
+        if !retry! lss 5 (
+            echo 重试删除备份文件 (!retry!/5)...
+            timeout /t 1 /nobreak > nul
+            goto cleanup_backup_retry
+        ) else (
+            echo 警告：无法删除备份文件，将在下次启动时清理
+        )
+    ) else (
+        echo 备份文件已清理
+    )
+)
 
 REM 重启程序
 if "{restart}" == "True" (
     echo 重启程序...
     start "" "{current_exe}"
+    goto end_script
 )
 
 :cleanup
-del "%~f0"
+echo 清理临时文件...
+
+:end_script
+REM 确保脚本文件存在后再删除
+if exist "%~f0" (
+    timeout /t 1 /nobreak > nul
+    del "%~f0" 2>nul
+)
 """
 
         batch_file = os.path.join(tempfile.gettempdir(), 'update.bat')
@@ -584,16 +637,23 @@ del "%~f0"
 
         script = f"""
 @echo off
+setlocal enabledelayedexpansion
 echo 等待程序退出...
 
-REM 等待当前进程退出，最多等待30秒
+REM 强制结束当前进程
+taskkill /PID {current_pid} /F >nul 2>&1
+timeout /t 2 /nobreak > nul
+
+REM 等待进程完全退出，最多等待10秒
 set /a count=0
 :wait_loop
 tasklist /FI "PID eq {current_pid}" 2>nul | find "{current_pid}" >nul
 if errorlevel 1 goto process_ended
 set /a count+=1
-if %count% geq 30 (
-    echo 警告：程序未在预期时间内退出，强制继续更新
+if %count% geq 10 (
+    echo 警告：程序未在预期时间内退出，强制终止进程
+    taskkill /PID {current_pid} /F >nul 2>&1
+    timeout /t 1 /nobreak > nul
     goto process_ended
 )
 timeout /t 1 /nobreak > nul
@@ -603,36 +663,88 @@ goto wait_loop
 echo 开始更新程序文件...
 
 REM 创建备份目录
-if not exist "{target_dir}\\backup" mkdir "{target_dir}\\backup"
+if not exist "{target_dir}\\backup" mkdir "{target_dir}\\backup" 2>nul
+if errorlevel 1 (
+    echo 警告：无法创建备份目录，尝试继续更新
+)
 
 REM 备份重要文件
 if exist "{target_dir}\\{exe_name}" (
+    echo 创建备份...
     copy "{target_dir}\\{exe_name}" "{target_dir}\\backup\\{exe_name}.backup" >nul 2>&1
+    if errorlevel 1 (
+        echo 警告：无法创建备份文件，尝试继续更新
+    ) else (
+        echo 备份文件已创建
+    )
 )
 
 REM 复制新文件
-xcopy /s /e /y "{source_dir}\\*" "{target_dir}\\"
+echo 复制更新文件...
+xcopy /s /e /y /h /r "{source_dir}\\*" "{target_dir}\\" >nul 2>&1
 if %errorlevel% == 0 (
     echo 更新成功完成
-    rmdir /s /q "{source_dir}" 2>nul
-    REM 删除备份（更新成功后）
-    if exist "{target_dir}\\backup" rmdir /s /q "{target_dir}\\backup" 2>nul
+    REM 清理临时文件
+    if exist "{source_dir}" (
+        rmdir /s /q "{source_dir}" 2>nul
+    )
+
+    REM 删除备份（更新成功后，带重试机制）
+    if exist "{target_dir}\\backup\\{exe_name}.backup" (
+        echo 清理备份文件...
+        set /a retry=0
+        :cleanup_backup_retry
+        del "{target_dir}\\backup\\{exe_name}.backup" 2>nul
+        if exist "{target_dir}\\backup\\{exe_name}.backup" (
+            set /a retry+=1
+            if !retry! lss 3 (
+                echo 重试删除备份文件 (!retry!/3)...
+                timeout /t 1 /nobreak > nul
+                goto cleanup_backup_retry
+            ) else (
+                echo 警告：无法删除备份文件，将在下次启动时清理
+            )
+        ) else (
+            echo 备份文件已清理
+        )
+    )
+
+    REM 清理空的备份目录
+    if exist "{target_dir}\\backup" (
+        dir /b "{target_dir}\\backup" 2>nul | findstr "." >nul
+        if errorlevel 1 (
+            rmdir "{target_dir}\\backup" 2>nul
+        )
+    )
 
     if "{restart}" == "True" (
         echo 重启程序...
-        cd "{target_dir}"
+        cd /d "{target_dir}"
         start "" "{exe_name}"
+        goto end_script
     )
 ) else (
-    echo 错误：更新失败，尝试恢复备份
+    echo 错误：文件复制失败，尝试恢复备份
     if exist "{target_dir}\\backup\\{exe_name}.backup" (
         copy "{target_dir}\\backup\\{exe_name}.backup" "{target_dir}\\{exe_name}" >nul 2>&1
-        echo 已恢复原程序文件
+        if errorlevel 1 (
+            echo 错误：无法恢复备份文件
+        ) else (
+            echo 已恢复原程序文件
+        )
     )
-    pause
+    goto cleanup
 )
 
-del "%~f0"
+:cleanup
+echo 更新失败，清理临时文件...
+
+:end_script
+REM 确保脚本文件存在后再删除
+if exist "%~f0" (
+    timeout /t 1 /nobreak > nul
+    del "%~f0" 2>nul
+)
 """
 
         script_file = os.path.join(tempfile.gettempdir(), 'update.bat')

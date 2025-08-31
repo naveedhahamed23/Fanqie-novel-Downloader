@@ -60,6 +60,9 @@ class ModernNovelDownloaderGUI:
         self.updater = AutoUpdater(__github_repo__, self.current_version)
         self.updater.register_callback(self.on_update_event)
         self.official_build = is_official_release_build()
+
+        # 清理可能残留的更新备份文件
+        self._cleanup_update_backups()
         
         # 配置文件路径
         self.config_file = "config.json"
@@ -80,6 +83,9 @@ class ModernNovelDownloaderGUI:
         
         # 检查已有的验证状态
         self.check_existing_verification()
+
+        # 检查上次更新状态
+        self._check_last_update_status()
 
         # 启动时自动检查更新（仅官方构建）
         if self.official_build and self.config.get('auto_check_update', True):
@@ -3071,6 +3077,79 @@ API数量: {saved_api_count}个
                 messagebox.showerror("更新失败", text)
             except Exception:
                 pass
+
+    def _cleanup_update_backups(self):
+        """清理可能残留的更新备份文件"""
+        try:
+            import os
+            import shutil
+            import sys
+
+            # 获取当前程序目录和可执行文件路径
+            if getattr(sys, 'frozen', False):
+                current_dir = os.path.dirname(sys.executable)
+                exe_name = os.path.basename(sys.executable)
+                backup_file = os.path.join(current_dir, f"{exe_name}.backup")
+                backup_dir = os.path.join(current_dir, "backup")
+
+                # 清理单个备份文件
+                if os.path.exists(backup_file):
+                    try:
+                        os.remove(backup_file)
+                        print("已清理残留的备份文件")
+                    except Exception as e:
+                        print(f"清理备份文件失败: {e}")
+
+                # 清理备份目录
+                if os.path.exists(backup_dir):
+                    try:
+                        # 检查目录是否为空
+                        if not os.listdir(backup_dir):
+                            os.rmdir(backup_dir)
+                            print("已清理空的备份目录")
+                        else:
+                            # 如果目录不为空，尝试删除其中的备份文件
+                            for file in os.listdir(backup_dir):
+                                if file.endswith('.backup'):
+                                    try:
+                                        os.remove(os.path.join(backup_dir, file))
+                                    except Exception:
+                                        pass
+                            # 再次检查是否为空
+                            if not os.listdir(backup_dir):
+                                os.rmdir(backup_dir)
+                                print("已清理备份目录")
+                    except Exception as e:
+                        print(f"清理备份目录失败: {e}")
+
+        except Exception as e:
+            print(f"清理备份文件时出错: {e}")
+
+    def _check_last_update_status(self):
+        """检查上次更新的状态"""
+        try:
+            from updater import AutoUpdater
+            status = AutoUpdater.check_update_status()
+
+            if status['log_exists']:
+                if status['update_success'] and status['last_update_time']:
+                    print(f"上次更新成功完成于: {status['last_update_time']}")
+                elif status['error_message']:
+                    print(f"上次更新失败: {status['error_message']}")
+                    # 可以在这里添加用户友好的提示
+                    try:
+                        # 在GUI完全加载后显示更新失败提示
+                        self.root.after(2000, lambda: messagebox.showwarning(
+                            "更新状态",
+                            f"检测到上次更新可能失败: {status['error_message']}\n"
+                            "建议重新运行更新或检查程序完整性。"
+                        ))
+                    except Exception:
+                        pass
+                else:
+                    print("检测到更新日志，但无法确定更新状态")
+        except Exception as e:
+            print(f"检查更新状态失败: {e}")
 
     def on_update_event(self, event, data):
         """处理更新过程中的事件回调"""
