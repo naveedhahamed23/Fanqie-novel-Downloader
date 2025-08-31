@@ -720,43 +720,52 @@ def get_book_cover_url(book_id, headers):
                 if selector.endswith('img'):
                     cover_elements = soup.select(selector)
                     for cover_element in cover_elements:
-                        if cover_element and cover_element.get('src'):
-                            img_src = cover_element.get('src')
-                            
-                            # 过滤掉明显不是封面的图片
-                            if any(keyword in img_src.lower() for keyword in ['logo', 'icon', 'avatar', 'default', 'user', 'profile', 'novel-static']):
-                                continue
-                            
-                                                # 检查alt属性是否包含封面相关关键词
-                    alt_text = cover_element.get('alt', '').lower()
-                    classes = ' '.join(cover_element.get('class', []))
+                        if not cover_element:
+                            continue
 
-                    if alt_text and any(keyword in alt_text for keyword in ['封面', 'cover', '书名', '小说', 'book']):
-                        cover_url = img_src
-                        break
+                        # 兼容多种图片地址属性
+                        img_src = (
+                            cover_element.get('src')
+                            or cover_element.get('data-src')
+                            or cover_element.get('data-original')
+                        )
+                        if not img_src:
+                            continue
 
-                    # 跳过作者头像
-                    if 'author' in alt_text or 'author-img' in classes:
-                        continue
+                        # 过滤掉明显不是封面的图片
+                        if any(keyword in img_src.lower() for keyword in ['logo', 'icon', 'avatar', 'default', 'user', 'profile', 'novel-static']):
+                            continue
 
-                    # 跳过明显是头像的URL模式
-                    if 'tos-cn-i' in img_src or 'avatar' in img_src.lower():
-                        continue
+                        # 检查alt和class信息
+                        alt_text = (cover_element.get('alt') or '').lower()
+                        classes = ' '.join(cover_element.get('class') or [])
 
-                    # 优先选择真正的封面URL（包含novel-pic）
-                    if 'novel-pic' in img_src:
-                        cover_url = img_src
-                        break
+                        if alt_text and any(keyword in alt_text for keyword in ['封面', 'cover', '书名', '小说', 'book']):
+                            cover_url = img_src
+                            break
 
-                    # 如果URL看起来像封面图片，也接受
-                    if any(keyword in img_src.lower() for keyword in ['cover', 'poster', 'thumb', 'book', 'fqnovelpic', 'reading-sign']):
-                        cover_url = img_src
-                        break
+                        # 跳过作者头像
+                        if 'author' in alt_text or 'author-img' in classes:
+                            continue
 
-                    # 最后的选择：如果前面都没匹配到，使用第一个有效的图片（但排除明显不是封面的）
-                    if not cover_url and not any(keyword in img_src.lower() for keyword in ['logo', 'icon', 'avatar', 'novel-static']):
-                        cover_url = img_src
-                        break
+                        # 跳过明显是头像的URL模式
+                        if 'tos-cn-i' in img_src or 'avatar' in img_src.lower():
+                            continue
+
+                        # 优先选择真正的封面URL（包含novel-pic）
+                        if 'novel-pic' in img_src:
+                            cover_url = img_src
+                            break
+
+                        # 如果URL看起来像封面图片，也接受
+                        if any(keyword in img_src.lower() for keyword in ['cover', 'poster', 'thumb', 'book', 'fqnovelpic', 'reading-sign']):
+                            cover_url = img_src
+                            break
+
+                        # 最后的选择：如果前面都没匹配到，使用第一个有效的图片（但排除明显不是封面的）
+                        if not cover_url and not any(keyword in img_src.lower() for keyword in ['logo', 'icon', 'avatar', 'novel-static']):
+                            cover_url = img_src
+                            break
 
                     if cover_url:
                         break
