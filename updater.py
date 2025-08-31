@@ -269,24 +269,31 @@ class AutoUpdater:
             合适的资源信息
         """
         platform = sys.platform.lower()
-        
-        # 定义平台关键字
+
+        # 在非 Windows 平台优先选择 .zip，以便使用外部 shell 脚本更新
+        if platform != 'win32':
+            for asset in assets:
+                name_lower = asset['name'].lower()
+                if name_lower.endswith('.zip'):
+                    return asset
+
+        # 定义平台关键字（Windows 可以优先选择 .exe）
         platform_keywords = {
             'win32': ['windows', 'win', '.exe'],
             'darwin': ['macos', 'mac', 'darwin', '.dmg', '.app'],
             'linux': ['linux', '.appimage', '.deb', '.rpm']
         }
-        
+
         keywords = platform_keywords.get(platform, [])
-        
+
         # 查找匹配的资源
         for asset in assets:
             asset_name_lower = asset['name'].lower()
             for keyword in keywords:
                 if keyword in asset_name_lower:
                     return asset
-        
-        # 如果没有找到平台特定的，尝试查找通用的zip文件
+
+        # 兜底：任何平台都尝试zip
         for asset in assets:
             if asset['name'].lower().endswith('.zip'):
                 return asset
@@ -416,132 +423,91 @@ class AutoUpdater:
             return False
     
     def _install_windows_exe(self, exe_path: str, restart: bool):
-        """安装Windows可执行文件"""
+        """安装Windows可执行文件（调用外部批处理脚本接管更新）"""
         current_pid = os.getpid()
         current_exe = sys.executable
 
-        # 创建改进的批处理脚本
-        batch_script = f"""
+        helper_name = 'update_helper.bat'
+        helper_path = os.path.join(tempfile.gettempdir(), helper_name)
+
+        helper_script = f"""
 @echo off
 setlocal enabledelayedexpansion
-echo 等待程序退出...
 
-REM 强制结束当前进程
-taskkill /PID {current_pid} /F >nul 2>&1
+REM 参数：当前PID、当前EXE路径、下载的更新文件路径、是否重启(True/False)
+set target_pid={current_pid}
+set current_exe="{current_exe}"
+set update_file="{exe_path}"
+set do_restart={str(restart)}
+
+echo [Updater] 准备关闭进程 !target_pid! 并执行文件替换
+taskkill /PID !target_pid! /F >nul 2>&1
 timeout /t 2 /nobreak > nul
 
-REM 等待进程完全退出，最多等待10秒
+REM 等待退出，最多15次
 set /a count=0
-:wait_loop
-tasklist /FI "PID eq {current_pid}" 2>nul | find "{current_pid}" >nul
-if errorlevel 1 goto process_ended
+:wait_exit
+tasklist /FI "PID eq !target_pid!" 2>nul | find "!target_pid!" >nul
+if errorlevel 1 goto do_update
 set /a count+=1
-if %count% geq 10 (
-    echo 警告：程序未在预期时间内退出，强制终止进程
-    taskkill /PID {current_pid} /F >nul 2>&1
-    timeout /t 1 /nobreak > nul
-    goto process_ended
+if !count! geq 15 (
+    echo [Updater] 进程未退出，继续强制更新
+    goto do_update
 )
 timeout /t 1 /nobreak > nul
-goto wait_loop
+goto wait_exit
 
-:process_ended
-echo 开始更新程序...
-
-REM 备份当前文件（带重试机制）
-if exist "{current_exe}.backup" (
-    echo 删除旧备份文件...
-    set /a retry=0
-    :delete_backup_retry
-    del "{current_exe}.backup" 2>nul
-    if exist "{current_exe}.backup" (
-        set /a retry+=1
-        if !retry! lss 3 (
-            echo 重试删除备份文件 (!retry!/3)...
-            timeout /t 1 /nobreak > nul
-            goto delete_backup_retry
-        ) else (
-            echo 警告：无法删除旧备份文件，跳过备份步骤
-        )
-    )
+:do_update
+echo [Updater] 开始更新文件
+REM 备份旧文件
+if exist !current_exe! (
+    copy /y !current_exe! !current_exe!.backup >nul 2>&1
 )
 
-if exist "{current_exe}" (
-    echo 创建新备份文件...
-    move "{current_exe}" "{current_exe}.backup" 2>nul
-    if errorlevel 1 (
-        echo 错误：无法备份当前程序文件，尝试强制覆盖
-        REM 继续执行，不中断更新
-    )
-)
-
-REM 移动新文件
-echo 安装新版本...
-move /y "{exe_path}" "{current_exe}" 2>nul
+REM 替换新文件（带重试）
+set /a retry=0
+:replace_retry
+move /y !update_file! !current_exe! >nul 2>&1
 if errorlevel 1 (
-    echo 错误：无法替换程序文件
-    REM 尝试恢复备份
-    if exist "{current_exe}.backup" (
-        move "{current_exe}.backup" "{current_exe}" 2>nul
-        if errorlevel 1 (
-            echo 错误：无法恢复备份文件
-        ) else (
-            echo 已恢复原程序文件
-        )
-    )
-    goto cleanup
-)
-
-echo 更新成功完成
-
-REM 删除备份文件（带重试机制）
-if exist "{current_exe}.backup" (
-    echo 清理备份文件...
-    set /a retry=0
-    :cleanup_backup_retry
-    del "{current_exe}.backup" 2>nul
-    if exist "{current_exe}.backup" (
-        set /a retry+=1
-        if !retry! lss 5 (
-            echo 重试删除备份文件 (!retry!/5)...
-            timeout /t 1 /nobreak > nul
-            goto cleanup_backup_retry
-        ) else (
-            echo 警告：无法删除备份文件，将在下次启动时清理
-        )
+    set /a retry+=1
+    if !retry! lss 5 (
+        echo [Updater] 替换失败，重试 !retry!/5
+        timeout /t 1 /nobreak > nul
+        goto replace_retry
     ) else (
-        echo 备份文件已清理
+        echo [Updater] 替换失败，尝试恢复备份
+        if exist !current_exe!.backup (
+            move /y !current_exe!.backup !current_exe! >nul 2>&1
+        )
+        goto end
     )
 )
 
-REM 重启程序
-if "{restart}" == "True" (
-    echo 重启程序...
-    start "" "{current_exe}"
-    goto end_script
+REM 清理备份
+if exist !current_exe!.backup (
+    del /f /q !current_exe!.backup >nul 2>&1
 )
 
-:cleanup
-echo 清理临时文件...
-
-:end_script
-REM 确保脚本文件存在后再删除
-if exist "%~f0" (
-    timeout /t 1 /nobreak > nul
-    del "%~f0" 2>nul
+if "!do_restart!"=="True" (
+    echo [Updater] 重启程序
+    start "" !current_exe!
 )
+
+:end
+exit /b 0
 """
 
-        batch_file = os.path.join(tempfile.gettempdir(), 'update.bat')
-        with open(batch_file, 'w', encoding='gbk') as f:  # 使用gbk编码避免中文乱码
-            f.write(batch_script)
+        with open(helper_path, 'w', encoding='gbk') as f:
+            f.write(helper_script)
 
-        # 执行批处理脚本
-        subprocess.Popen(batch_file, shell=True)
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NO_WINDOW = 0x08000000
+        creationflags = DETACHED_PROCESS | CREATE_NO_WINDOW
 
-        # 确保程序退出
-        self._notify_callbacks('install_progress', '程序即将退出以完成更新...')
-        time.sleep(0.5)  # 给UI一点时间显示消息
+        subprocess.Popen(['cmd', '/c', helper_path], creationflags=creationflags)
+
+        self._notify_callbacks('install_progress', '外部更新程序已启动，应用将退出以完成更新...')
+        time.sleep(0.5)
         sys.exit(0)
     
     def _install_from_zip(self, zip_path: str, restart: bool):
