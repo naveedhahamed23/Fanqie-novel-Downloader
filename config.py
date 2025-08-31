@@ -38,6 +38,7 @@ CONFIG = {
     "auth_token": "wcnmd91jb",
     "server_url": "https://dlbkltos.s7123.xyz:5080",
     "api_endpoints": [],
+    "download_enabled": False,  # 禁用章节下载功能
     "batch_config": {
         "name": "qyuing",
         "base_url": None,

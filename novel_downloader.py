@@ -1076,6 +1076,18 @@ def create_epub_book(name, author_name, description, chapter_results, chapters, 
 def Run(book_id, save_path, file_format='txt', start_chapter=None, end_chapter=None, gui_callback=None):
     """运行下载"""
 
+    # 检查下载功能是否被禁用
+    if not CONFIG.get("download_enabled", True):
+        error_msg = "章节下载功能已被禁用。如需启用，请修改config.py中的'download_enabled'设置为True"
+        if gui_callback:
+            if len(inspect.signature(gui_callback).parameters) > 1:
+                gui_callback(-1, error_msg)
+            else:
+                print(error_msg)
+        else:
+            print(error_msg)
+        return False
+
     # 日志输出函数，根据是否有GUI回调来选择输出方式
     def log_message(message, progress=-1):
         """输出日志消息"""
@@ -1209,9 +1221,14 @@ def Run(book_id, save_path, file_format='txt', start_chapter=None, end_chapter=N
                         continue
 
                     for chap in batch:
-                        content = batch_results.get(chap["id"], "")
-                        if isinstance(content, dict):
-                            content = content.get("content", "")
+                        chapter_data = batch_results.get(chap["id"], "")
+
+                        if isinstance(chapter_data, dict):
+                            content = chapter_data.get("content", "")
+                            api_title = chapter_data.get("title", "")
+                        else:
+                            content = chapter_data
+                            api_title = ""
 
                         if content:
                             processed_content = process_chapter_content(content)
@@ -1219,7 +1236,7 @@ def Run(book_id, save_path, file_format='txt', start_chapter=None, end_chapter=N
                             with lock:
                                 chapter_results[chap["index"]] = {
                                     "base_title": chap["title"],
-                                    "api_title": "",
+                                    "api_title": api_title,
                                     "content": processed
                                 }
                                 downloaded.add(chap["id"])
@@ -1514,6 +1531,17 @@ class NovelDownloaderAPI:
     def run_download(self, book_id, save_path, file_format='txt', start_chapter=None, end_chapter=None, gui_callback=None):
         """运行下载（兼容GUI调用）"""
         try:
+            # 检查下载功能是否被禁用
+            if not CONFIG.get("download_enabled", True):
+                error_msg = "章节下载功能已被禁用。如需启用，请修改config.py中的'download_enabled'设置为True"
+                if self.current_progress_callback:
+                    self.current_progress_callback(-1, error_msg)
+                elif gui_callback:
+                    gui_callback(-1, error_msg)
+                else:
+                    print(error_msg)
+                return False
+
             # 如果有GUI回调，使用它
             if gui_callback:
                 self.gui_verification_callback = gui_callback
