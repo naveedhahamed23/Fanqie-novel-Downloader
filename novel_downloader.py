@@ -281,12 +281,18 @@ def process_chapter_content(content):
 
 def down_text(chapter_id, headers, book_id=None):
     """下载章节内容"""
+    best_title = ""
+    best_content = ""
+
     for endpoint in CONFIG["api_endpoints"]:
         current_endpoint = endpoint["url"]
         api_name = endpoint["name"]
 
         try:
             time.sleep(random.uniform(0.1, 0.5))
+
+            title = ""
+            content = ""
 
             if api_name == "fanqie_sdk":
                 params = endpoint.get("params", {"sdk_type": "4", "novelsdk_aid": "638505"})
@@ -316,8 +322,7 @@ def down_text(chapter_id, headers, book_id=None):
                     title = data.get("data", {}).get("title", "")
                     if content:
                         processed_content = process_chapter_content(content)
-                        processed = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
-                        return title, processed
+                        content = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
                 except json.JSONDecodeError:
                     continue
 
@@ -336,8 +341,7 @@ def down_text(chapter_id, headers, book_id=None):
                         title = data.get("data", {}).get("data", {}).get("title", "")
                         if content:
                             processed_content = process_chapter_content(content)
-                            processed = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
-                            return title, processed
+                            content = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
                 except:
                     continue
 
@@ -356,8 +360,7 @@ def down_text(chapter_id, headers, book_id=None):
                         title = data.get("data", {}).get("data", {}).get("title", "")
                         if content:
                             processed_content = process_chapter_content(content)
-                            processed = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
-                            return title, processed
+                            content = re.sub(r'^(\s*)', r'    ', processed_content, flags=re.MULTILINE)
                 except:
                     continue
 
@@ -375,19 +378,31 @@ def down_text(chapter_id, headers, book_id=None):
                         cleaned = "\n".join(p.strip() for p in paragraphs if p.strip())
                         formatted = '\n'.join('    ' + line if line.strip() else line
                                             for line in cleaned.split('\n'))
-                        return "", formatted
+                        content = formatted
+                        title = ""  # lsjk doesn't provide title
                     except:
                         continue
 
+            # Collect best title and content
+            if content and not best_content:
+                best_content = content
+            if title and not best_title:
+                best_title = title
+
+            if best_content and best_title:
+                return best_title, best_content
+
         except Exception as e:
-            # 不在GUI环境中显示过多调试信息，避免递归
             if not gui_callback:
                 with print_lock:
                     print(f"API {api_name} 请求异常: {str(e)[:50]}...，尝试切换")
             time.sleep(0.5)
             continue
 
-            # 不在GUI环境中显示过多调试信息，避免递归
+    # After trying all, return what we have if at least content is available
+    if best_content:
+        return best_title, best_content
+    else:
         if not gui_callback:
             with print_lock:
                 print(f"章节 {chapter_id} 所有API均失败")
