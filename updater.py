@@ -746,7 +746,6 @@ if exist "%~f0" (
     del "%~f0" 2>nul
 )
 """
-
         script_file = os.path.join(tempfile.gettempdir(), 'update.bat')
         with open(script_file, 'w', encoding='gbk') as f:  # 使用gbk编码避免中文乱码
             f.write(script)
