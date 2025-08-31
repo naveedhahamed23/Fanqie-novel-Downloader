@@ -1531,21 +1531,21 @@ class ModernNovelDownloaderGUI:
             self.root.after(0, lambda: self.progress_callback(10, f"准备使用enhanced_downloader.py的高速下载《{book_name}》..."))
             
             # 整本下载 - 直接使用增强型下载器（移除章节下载模式）
-            self.root.after(0, lambda: self.progress_callback(15, f"启动enhanced_downloader.py高速下载模式..."))
+                self.root.after(0, lambda: self.progress_callback(15, f"启动enhanced_downloader.py高速下载模式..."))
+                
+                # 直接使用增强型下载器的run_download方法
+                downloader = self.api.enhanced_downloader
+                downloader.set_progress_callback(gui_progress_callback)
 
-            # 直接使用增强型下载器的run_download方法
-            downloader = self.api.enhanced_downloader
-            downloader.set_progress_callback(gui_progress_callback)
-
-            # 在线程中运行下载，传递GUI验证回调
-            downloader.run_download(book_id, save_path, file_format)
-
-            # 检查是否取消
-            if downloader.is_cancelled:
-                self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
-                return
-
-            # 完成消息由下载器内部处理，不需要在这里重复发送
+                # 在线程中运行下载，传递GUI验证回调
+                downloader.run_download(book_id, save_path, file_format)
+                
+                # 检查是否取消
+                if downloader.is_cancelled:
+                    self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
+                    return
+                
+                # 完成消息由下载器内部处理，不需要在这里重复发送
                 
         except Exception as e:
             error_msg = str(e)
@@ -2862,71 +2862,80 @@ API数量: {saved_api_count}个
             self._start_update(update_info)
 
     def _start_update(self, update_info):
-        """开始下载并安装更新（带进度窗口）"""
-        # 创建进度窗口
-        self._create_update_window()
-        
-        def progress_callback(current, total):
-            percent = 0
-            if total > 0:
-                percent = int(current * 100 / total)
-            self._update_download_progress(percent, current, total)
-        
-        def worker():
-            file_path = self.updater.download_update(update_info, progress_callback=progress_callback)
-            if not file_path:
-                self.root.after(0, lambda: self._set_update_status("下载失败", error=True))
-                return
-            self.root.after(0, lambda: self._set_update_status("下载完成，正在安装..."))
-            ok = self.updater.install_update(file_path, restart=True)
-            if not ok:
-                self.root.after(0, lambda: self._set_update_status("安装失败", error=True))
-        threading.Thread(target=worker, daemon=True).start()
+        """开始更新（调用外部脚本处理所有更新操作）"""
+        try:
+            log_message(f"开始更新到版本: {update_info.get('version', 'unknown')}")
 
-    def _create_update_window(self):
-        if hasattr(self, 'update_window') and self.update_window and tk.Toplevel.winfo_exists(self.update_window):
-            return
-        self.update_window = tk.Toplevel(self.root)
-        self.update_window.title("更新中")
-        self.update_window.geometry("420x160")
-        self.update_window.resizable(False, False)
-        self.update_window.grab_set()
-        
-        frame = tk.Frame(self.update_window, bg=self.colors['surface'])
-        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        self.update_status_var = tk.StringVar(value="正在准备下载...")
-        status_lbl = tk.Label(frame, textvariable=self.update_status_var, font=self.fonts['body'], bg=self.colors['surface'], fg=self.colors['text_primary'])
-        status_lbl.pack(anchor='w')
-        
-        self.update_progress = tk.IntVar(value=0)
-        self.update_progressbar = ttk.Progressbar(frame, orient='horizontal', mode='determinate', length=360, variable=self.update_progress, style='Modern.Horizontal.TProgressbar')
-        self.update_progressbar.pack(pady=(12, 0))
-        
-        self.update_detail_var = tk.StringVar(value="0%")
-        detail_lbl = tk.Label(frame, textvariable=self.update_detail_var, font=self.fonts['small'], bg=self.colors['surface'], fg=self.colors['text_secondary'])
-        detail_lbl.pack(anchor='e', fill=tk.X)
+            # 创建外部更新脚本
+            self._create_external_update_script(update_info)
 
-    def _update_download_progress(self, percent, current, total):
-        if hasattr(self, 'update_progress'):
-            self.update_progress.set(percent)
-        if hasattr(self, 'update_detail_var'):
-            if total > 0:
-                self.update_detail_var.set(f"{percent}%  ({current // 1024} KB / {total // 1024} KB)")
+            # 显示退出提示
+            messagebox.showinfo("更新启动",
+                              "更新程序已启动，应用程序将关闭。\n"
+                              "更新完成后会自动重启程序。")
+
+            # 立即退出应用程序
+            self.root.quit()
+            sys.exit(0)
+
+        except Exception as e:
+            log_message(f"启动外部更新程序失败: {e}")
+            messagebox.showerror("更新失败", f"启动更新程序失败: {e}")
+
+    def _create_external_update_script(self, update_info):
+        """创建并启动外部更新脚本"""
+        try:
+            import json
+            import subprocess
+
+            # 获取外部脚本路径
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            external_script = os.path.join(script_dir, 'external_updater.py')
+
+            # 检查外部脚本是否存在
+            if not os.path.exists(external_script):
+                raise Exception(f"外部更新脚本不存在: {external_script}")
+
+            # 将更新信息序列化为 JSON 字符串
+            update_info_json = json.dumps(update_info)
+
+            # 创建批处理脚本或 shell 脚本启动外部更新程序
+            if platform.system() == 'Windows':
+                # Windows 批处理脚本
+                batch_script = f"""@echo off
+cd /d "{script_dir}"
+python "{external_script}" "{update_info_json.replace('"', '\\"')}"
+"""
+                batch_file = os.path.join(tempfile.gettempdir(), 'start_update.bat')
+                with open(batch_file, 'w', encoding='gbk') as f:
+                    f.write(batch_script)
+
+                # 启动批处理脚本（脱离控制台）
+                subprocess.Popen(['cmd', '/c', batch_file],
+                               creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW)
             else:
-                self.update_detail_var.set(f"{current // 1024} KB")
-        if hasattr(self, 'update_status_var'):
-            self.update_status_var.set("正在下载更新...")
-        self.root.update_idletasks()
+                # Unix shell 脚本
+                shell_script = f"""#!/bin/bash
+cd "{script_dir}"
+python3 "{external_script}" '{update_info_json}'
+"""
+                shell_file = os.path.join(tempfile.gettempdir(), 'start_update.sh')
+                with open(shell_file, 'w') as f:
+                    f.write(shell_script)
+                os.chmod(shell_file, 0o755)
 
-    def _set_update_status(self, text, error=False):
-        if hasattr(self, 'update_status_var'):
-            self.update_status_var.set(text)
-        if error:
-            try:
-                messagebox.showerror("更新失败", text)
-            except Exception:
-                pass
+                # 启动 shell 脚本
+                subprocess.Popen([shell_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            log_message("外部更新脚本已启动")
+
+        except Exception as e:
+            log_message(f"创建外部更新脚本失败: {e}")
+            raise
+
+
+
+    
 
     def _cleanup_update_backups(self):
         """清理可能残留的更新备份文件"""
@@ -3002,25 +3011,11 @@ API数量: {saved_api_count}个
             print(f"检查更新状态失败: {e}")
 
     def on_update_event(self, event, data):
-        """处理更新过程中的事件回调"""
-        if event == 'download_start':
-            self._create_update_window()
-            self._set_update_status("开始下载更新...")
-        elif event == 'download_progress':
-            cur = data.get('current', 0)
-            total = data.get('total', 0)
-            percent = data.get('percent', 0)
-            self._update_download_progress(int(percent), cur, total)
-        elif event == 'download_complete':
-            self._set_update_status("下载完成，准备安装...")
-        elif event == 'download_error':
-            self._set_update_status(f"下载失败: {data}", error=True)
-        elif event == 'install_start':
-            self._set_update_status("正在安装更新...")
-        elif event == 'install_error':
-            self._set_update_status(f"安装失败: {data}", error=True)
-        elif event == 'install_complete':
-            # 某些平台安装成功后会退出当前程序并重启
+        """处理更新过程中的事件回调（外部脚本处理，不需要GUI响应）"""
+        # 由于更新现在由外部脚本完全处理，GUI不再需要响应这些事件
+        # 只记录日志即可
+        if event in ['download_error', 'install_error']:
+            log_message(f"更新事件: {event} - {data}", "WARNING")
             try:
                 messagebox.showinfo("更新完成", "更新已安装，程序将重启")
             except Exception:

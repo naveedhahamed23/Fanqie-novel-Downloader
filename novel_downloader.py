@@ -1055,7 +1055,20 @@ def create_epub_book(name, author_name, description, chapter_results, chapters, 
     for idx in range(len(chapters)):
         if idx in chapter_results:
             result = chapter_results[idx]
-            title = f'{result["base_title"]} {result["api_title"]}' if result["api_title"] else result["base_title"]
+            # 智能处理标题，避免重复的章节编号
+            if result["api_title"]:
+                # 检查api_title是否已经包含章节编号，如果是则直接使用
+                api_title = result["api_title"].strip()
+                base_title = result["base_title"].strip()
+
+                # 如果api_title以"第X章"开头，说明已经包含章节信息，直接使用
+                if api_title.startswith("第") and "章" in api_title[:10]:
+                    title = api_title
+                else:
+                    # 如果api_title不包含章节编号，则组合使用
+                    title = f'{base_title} {api_title}'
+            else:
+                title = result["base_title"]
             chapter = epub.EpubHtml(
                 title=title,
                 file_name=f'chap_{idx}.xhtml',
@@ -1138,7 +1151,20 @@ def Run(book_id, save_path, file_format='txt', start_chapter=None, end_chapter=N
                     for idx in range(len(chapters)):
                         if idx in chapter_results:
                             result = chapter_results[idx]
-                            title = f'{result["base_title"]} {result["api_title"]}' if result["api_title"] else result["base_title"]
+                            # 智能处理标题，避免重复的章节编号
+                            if result["api_title"]:
+                                # 检查api_title是否已经包含章节编号，如果是则直接使用
+                                api_title = result["api_title"].strip()
+                                base_title = result["base_title"].strip()
+
+                                # 如果api_title以"第X章"开头，说明已经包含章节信息，直接使用
+                                if api_title.startswith("第") and "章" in api_title[:10]:
+                                    title = api_title
+                                else:
+                                    # 如果api_title不包含章节编号，则组合使用
+                                    title = f'{base_title} {api_title}'
+                            else:
+                                title = result["base_title"]
                             f.write(f"{title}\n{result['content']}\n\n")
                 log_message(f"下载完成！成功下载 {len(chapter_results)} 个章节，文件已保存到: {output_file_path}")
                 # 下载完成后自动清理状态文件
