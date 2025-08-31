@@ -1,112 +1,105 @@
 # -*- coding: utf-8 -*-
 """
-配置管理模块
-统一管理所有配置信息，避免重复定义
+配置管理模块 - 基于参考代码的简化版本
 """
 
-class Config:
-    """应用程序配置类"""
-    
-    # 基础配置
-    MAX_WORKERS = 4
-    MAX_RETRIES = 3
-    REQUEST_TIMEOUT = 15
-    STATUS_FILE = "chapter.json"
-    REQUEST_RATE_LIMIT = 0.4
-    
-    # 认证配置
-    AUTH_TOKEN = "wcnmd91jb"
-    SERVER_URL = "https://dlbkltos.s7123.xyz:5080"
-    
-    # API端点配置
-    API_ENDPOINTS = []
-    
-    # 批量下载配置
-    BATCH_CONFIG = {
+import time
+import requests
+import bs4
+import re
+import os
+import random
+import json
+import urllib3
+import threading
+import signal
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+from collections import OrderedDict
+from fake_useragent import UserAgent
+from typing import Optional, Dict
+from ebooklib import epub
+import base64
+import gzip
+from urllib.parse import urlencode
+
+# 禁用SSL证书验证警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+requests.packages.urllib3.disable_warnings()
+
+# 全局配置
+CONFIG = {
+    "max_workers": 4,
+    "max_retries": 3,
+    "request_timeout": 15,
+    "status_file": "chapter.json",
+    "request_rate_limit": 0.4,
+    "auth_token": "wcnmd91jb",
+    "server_url": "https://dlbkltos.s7123.xyz:5080",
+    "api_endpoints": [],
+    "batch_config": {
         "name": "qyuing",
         "base_url": None,
         "batch_endpoint": None,
         "token": None,
         "max_batch_size": 290,
         "timeout": 10,
-        "enabled": False
+        "enabled": True
     }
-    
-    # 用户代理配置
-    USER_AGENTS = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0'
-    ]
-    
-    # 文件输出配置
-    OUTPUT_CONFIG = {
-        "txt_encoding": "utf-8",
-        "epub_encoding": "utf-8",
-        "default_format": "txt",
-        "create_subdirs": True
-    }
-    
-    # 网络请求配置
-    NETWORK_CONFIG = {
-        "verify_ssl": True,
-        "allow_redirects": True,
-        "stream": False,
-        "connection_pool_size": 10
-    }
-    
-    @classmethod
-    def get_config_dict(cls):
-        """获取完整配置字典（兼容旧代码）"""
-        return {
-            "max_workers": cls.MAX_WORKERS,
-            "max_retries": cls.MAX_RETRIES,
-            "request_timeout": cls.REQUEST_TIMEOUT,
-            "status_file": cls.STATUS_FILE,
-            "request_rate_limit": cls.REQUEST_RATE_LIMIT,
-            "auth_token": cls.AUTH_TOKEN,
-            "server_url": cls.SERVER_URL,
-            "api_endpoints": cls.API_ENDPOINTS,
-            "batch_config": cls.BATCH_CONFIG
+}
+
+# 全局锁
+print_lock = threading.Lock()
+
+def make_request(url, headers=None, params=None, data=None, method='GET', verify=False, timeout=None):
+    """通用的请求函数"""
+    if headers is None:
+        headers = get_headers()
+
+    try:
+        request_params = {
+            'headers': headers,
+            'params': params,
+            'verify': verify,
+            'timeout': timeout if timeout is not None else CONFIG["request_timeout"]
         }
-    
-    @classmethod
-    def update_api_endpoints(cls, endpoints):
-        """更新API端点列表"""
-        cls.API_ENDPOINTS = endpoints
-    
 
-# 为了兼容旧代码，提供动态CONFIG变量
-class ConfigDict(dict):
-    """Dynamic config dict that always reflects current Config values"""
-    def __getitem__(self, key):
-        if key == "api_endpoints":
-            return Config.API_ENDPOINTS
-        elif key == "batch_config":
-            return Config.BATCH_CONFIG
+        if data:
+            request_params['json'] = data
+
+        session = requests.Session()
+        if method.upper() == 'GET':
+            response = session.get(url, **request_params)
+        elif method.upper() == 'POST':
+            response = session.post(url, **request_params)
         else:
-            return Config.get_config_dict()[key]
-    
-    def __setitem__(self, key, value):
-        if key == "api_endpoints":
-            Config.API_ENDPOINTS = value
-        elif key == "batch_config":
-            Config.BATCH_CONFIG = value
-        else:
-            # Update the Config class attribute if it exists
-            attr_name = key.upper()
-            if hasattr(Config, attr_name):
-                setattr(Config, attr_name, value)
-    
-    def get(self, key, default=None):
-        try:
-            return self[key]
-        except KeyError:
-            return default
+            raise ValueError(f"不支持的HTTP方法: {method}")
 
-CONFIG = ConfigDict()
+        return response
+    except Exception as e:
+        with print_lock:
+            print(f"请求失败: {str(e)}")
+        raise
 
-# 导出主要的配置对象
-__all__ = ['Config', 'CONFIG']
+def get_headers() -> Dict[str, str]:
+    """生成随机请求头"""
+    browsers = ['chrome', 'edge']
+    browser = random.choice(browsers)
+
+    if browser == 'chrome':
+        user_agent = UserAgent().chrome
+    else:
+        user_agent = UserAgent().edge
+
+    return {
+        "User-Agent": user_agent,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://fanqienovel.com/",
+        "X-Requested-With": "XMLHttpRequest",
+        "Content-Type": "application/json"
+    }
+
+# 导出配置
+__all__ = ['CONFIG', 'print_lock', 'make_request', 'get_headers']

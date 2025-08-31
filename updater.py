@@ -221,7 +221,7 @@ class AutoUpdater:
     def register_callback(self, callback: Callable):
         """注册更新回调函数"""
         self.update_callbacks.append(callback)
-        
+
     def _notify_callbacks(self, event: str, data: Any = None):
         """通知所有回调函数"""
         for callback in self.update_callbacks:
@@ -229,6 +229,22 @@ class AutoUpdater:
                 callback(event, data)
             except Exception as e:
                 print(f"回调函数执行失败: {e}")
+
+    def _create_update_log(self, message: str, level: str = "INFO"):
+        """创建更新日志"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_message = f"[{timestamp}] [{level}] {message}"
+
+        # 写入日志文件
+        log_file = os.path.join(tempfile.gettempdir(), 'update.log')
+        try:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(log_message + '\n')
+        except Exception:
+            pass  # 忽略日志写入失败
+
+        # 同时输出到控制台
+        print(log_message)
     
     def check_for_updates(self, force: bool = False) -> Optional[Dict[str, Any]]:
         """
@@ -345,11 +361,11 @@ class AutoUpdater:
     def install_update(self, update_file: str, restart: bool = True) -> bool:
         """
         安装更新
-        
+
         Args:
             update_file: 更新文件路径
             restart: 是否重启应用
-            
+
         Returns:
             是否安装成功
         """
@@ -359,48 +375,120 @@ class AutoUpdater:
             return False
         try:
             self._notify_callbacks('install_start', update_file)
-            
+            self._create_update_log(f"开始安装更新: {update_file}")
+
+            # 预检查：确保更新文件存在且可读
+            if not os.path.exists(update_file):
+                raise Exception(f"更新文件不存在: {update_file}")
+
+            if not os.access(update_file, os.R_OK):
+                raise Exception(f"无法读取更新文件: {update_file}")
+
+            self._create_update_log(f"更新文件验证通过: {update_file}")
+
+            # 预检查：确保当前程序目录可写
+            current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            if not os.access(current_dir, os.W_OK):
+                raise Exception(f"程序目录无写入权限: {current_dir}")
+
+            self._create_update_log(f"程序目录权限检查通过: {current_dir}")
+
             # 根据文件类型处理
             if update_file.endswith('.exe'):
                 # Windows可执行文件
+                self._create_update_log("使用Windows EXE更新模式")
                 self._install_windows_exe(update_file, restart)
             elif update_file.endswith('.zip'):
                 # ZIP压缩包
+                self._create_update_log("使用ZIP压缩包更新模式")
                 self._install_from_zip(update_file, restart)
             else:
                 raise Exception(f"不支持的更新文件类型: {update_file}")
-            
+
             self._notify_callbacks('install_complete', None)
             return True
-            
+
         except Exception as e:
+            error_msg = f"安装更新失败: {e}"
+            self._create_update_log(error_msg, "ERROR")
             self._notify_callbacks('install_error', str(e))
-            print(f"安装更新失败: {e}")
+            print(error_msg)
             return False
     
     def _install_windows_exe(self, exe_path: str, restart: bool):
         """安装Windows可执行文件"""
-        # 创建批处理脚本来替换文件
+        current_pid = os.getpid()
+        current_exe = sys.executable
+
+        # 创建改进的批处理脚本
         batch_script = f"""
 @echo off
-timeout /t 2 /nobreak > nul
-move /y "{exe_path}" "{sys.executable}"
-if %errorlevel% == 0 (
-    if "{restart}" == "True" (
-        start "" "{sys.executable}"
+echo 等待程序退出...
+
+REM 等待当前进程退出，最多等待30秒
+set /a count=0
+:wait_loop
+tasklist /FI "PID eq {current_pid}" 2>nul | find "{current_pid}" >nul
+if errorlevel 1 goto process_ended
+set /a count+=1
+if %count% geq 30 (
+    echo 警告：程序未在预期时间内退出，强制继续更新
+    goto process_ended
+)
+timeout /t 1 /nobreak > nul
+goto wait_loop
+
+:process_ended
+echo 开始更新程序...
+
+REM 备份当前文件
+if exist "{current_exe}.backup" del "{current_exe}.backup"
+if exist "{current_exe}" (
+    move "{current_exe}" "{current_exe}.backup"
+    if errorlevel 1 (
+        echo 错误：无法备份当前程序文件
+        pause
+        goto cleanup
     )
 )
+
+REM 移动新文件
+move /y "{exe_path}" "{current_exe}"
+if errorlevel 1 (
+    echo 错误：无法替换程序文件
+    REM 尝试恢复备份
+    if exist "{current_exe}.backup" (
+        move "{current_exe}.backup" "{current_exe}"
+        echo 已恢复原程序文件
+    )
+    pause
+    goto cleanup
+)
+
+echo 更新成功完成
+REM 删除备份文件
+if exist "{current_exe}.backup" del "{current_exe}.backup"
+
+REM 重启程序
+if "{restart}" == "True" (
+    echo 重启程序...
+    start "" "{current_exe}"
+)
+
+:cleanup
 del "%~f0"
 """
-        
+
         batch_file = os.path.join(tempfile.gettempdir(), 'update.bat')
-        with open(batch_file, 'w') as f:
+        with open(batch_file, 'w', encoding='gbk') as f:  # 使用gbk编码避免中文乱码
             f.write(batch_script)
-        
+
         # 执行批处理脚本
         subprocess.Popen(batch_file, shell=True)
-        
-        # 退出当前程序
+
+        # 确保程序退出
+        self._notify_callbacks('install_progress', '程序即将退出以完成更新...')
+        time.sleep(0.5)  # 给UI一点时间显示消息
         sys.exit(0)
     
     def _install_from_zip(self, zip_path: str, restart: bool):
@@ -491,49 +579,191 @@ del "%~f0"
     
     def _create_windows_update_script(self, source_dir: str, target_dir: str, restart: bool):
         """创建Windows更新脚本"""
+        current_pid = os.getpid()
+        exe_name = os.path.basename(sys.executable)
+
         script = f"""
 @echo off
-timeout /t 2 /nobreak > nul
+echo 等待程序退出...
+
+REM 等待当前进程退出，最多等待30秒
+set /a count=0
+:wait_loop
+tasklist /FI "PID eq {current_pid}" 2>nul | find "{current_pid}" >nul
+if errorlevel 1 goto process_ended
+set /a count+=1
+if %count% geq 30 (
+    echo 警告：程序未在预期时间内退出，强制继续更新
+    goto process_ended
+)
+timeout /t 1 /nobreak > nul
+goto wait_loop
+
+:process_ended
+echo 开始更新程序文件...
+
+REM 创建备份目录
+if not exist "{target_dir}\\backup" mkdir "{target_dir}\\backup"
+
+REM 备份重要文件
+if exist "{target_dir}\\{exe_name}" (
+    copy "{target_dir}\\{exe_name}" "{target_dir}\\backup\\{exe_name}.backup" >nul 2>&1
+)
+
+REM 复制新文件
 xcopy /s /e /y "{source_dir}\\*" "{target_dir}\\"
 if %errorlevel% == 0 (
-    rmdir /s /q "{source_dir}"
+    echo 更新成功完成
+    rmdir /s /q "{source_dir}" 2>nul
+    REM 删除备份（更新成功后）
+    if exist "{target_dir}\\backup" rmdir /s /q "{target_dir}\\backup" 2>nul
+
     if "{restart}" == "True" (
+        echo 重启程序...
         cd "{target_dir}"
-        start "" "{os.path.basename(sys.executable)}"
+        start "" "{exe_name}"
     )
+) else (
+    echo 错误：更新失败，尝试恢复备份
+    if exist "{target_dir}\\backup\\{exe_name}.backup" (
+        copy "{target_dir}\\backup\\{exe_name}.backup" "{target_dir}\\{exe_name}" >nul 2>&1
+        echo 已恢复原程序文件
+    )
+    pause
 )
+
 del "%~f0"
 """
-        
+
         script_file = os.path.join(tempfile.gettempdir(), 'update.bat')
-        with open(script_file, 'w') as f:
+        with open(script_file, 'w', encoding='gbk') as f:  # 使用gbk编码避免中文乱码
             f.write(script)
-        
+
+        # 通知用户程序即将退出
+        self._notify_callbacks('install_progress', '程序即将退出以完成更新...')
+        time.sleep(0.5)  # 给UI一点时间显示消息
+
         subprocess.Popen(script_file, shell=True)
         sys.exit(0)
     
     def _create_unix_update_script(self, source_dir: str, target_dir: str, restart: bool):
         """创建Unix更新脚本"""
+        current_pid = os.getpid()
+        exe_name = os.path.basename(sys.executable)
+
         script = f"""#!/bin/bash
-sleep 2
-cp -rf "{source_dir}"/* "{target_dir}/"
-if [ $? -eq 0 ]; then
-    rm -rf "{source_dir}"
-    if [ "{restart}" = "True" ]; then
-        cd "{target_dir}"
-        ./{os.path.basename(sys.executable)} &
+echo "等待程序退出..."
+
+# 等待当前进程退出，最多等待30秒
+count=0
+while [ $count -lt 30 ]; do
+    if ! kill -0 {current_pid} 2>/dev/null; then
+        break
     fi
+    count=$((count + 1))
+    sleep 1
+done
+
+if kill -0 {current_pid} 2>/dev/null; then
+    echo "警告：程序未在预期时间内退出，强制继续更新"
 fi
+
+echo "开始更新程序文件..."
+
+# 创建备份目录
+mkdir -p "{target_dir}/backup"
+
+# 备份重要文件
+if [ -f "{target_dir}/{exe_name}" ]; then
+    cp "{target_dir}/{exe_name}" "{target_dir}/backup/{exe_name}.backup" 2>/dev/null
+fi
+
+# 复制新文件
+if cp -rf "{source_dir}"/* "{target_dir}/"; then
+    echo "更新成功完成"
+    rm -rf "{source_dir}" 2>/dev/null
+    # 删除备份（更新成功后）
+    rm -rf "{target_dir}/backup" 2>/dev/null
+
+    if [ "{restart}" = "True" ]; then
+        echo "重启程序..."
+        cd "{target_dir}"
+        nohup ./{exe_name} > /dev/null 2>&1 &
+    fi
+else
+    echo "错误：更新失败，尝试恢复备份"
+    if [ -f "{target_dir}/backup/{exe_name}.backup" ]; then
+        cp "{target_dir}/backup/{exe_name}.backup" "{target_dir}/{exe_name}" 2>/dev/null
+        echo "已恢复原程序文件"
+    fi
+    read -p "按回车键继续..."
+fi
+
 rm -f "$0"
 """
-        
+
         script_file = os.path.join(tempfile.gettempdir(), 'update.sh')
         with open(script_file, 'w') as f:
             f.write(script)
-        
+
         os.chmod(script_file, 0o755)
+
+        # 通知用户程序即将退出
+        self._notify_callbacks('install_progress', '程序即将退出以完成更新...')
+        time.sleep(0.5)  # 给UI一点时间显示消息
+
         subprocess.Popen(['/bin/bash', script_file])
         sys.exit(0)
+
+    @staticmethod
+    def check_update_status() -> Dict[str, Any]:
+        """
+        检查上次更新的状态
+
+        Returns:
+            更新状态信息
+        """
+        log_file = os.path.join(tempfile.gettempdir(), 'update.log')
+        status = {
+            'last_update_time': None,
+            'update_success': False,
+            'error_message': None,
+            'log_exists': False
+        }
+
+        if os.path.exists(log_file):
+            status['log_exists'] = True
+            try:
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+
+                # 分析最后几行日志
+                for line in reversed(lines[-20:]):  # 只看最后20行
+                    if '开始安装更新' in line:
+                        # 提取时间戳
+                        import re
+                        match = re.search(r'\[(.*?)\]', line)
+                        if match:
+                            status['last_update_time'] = match.group(1)
+                    elif '更新成功完成' in line:
+                        status['update_success'] = True
+                    elif '[ERROR]' in line:
+                        status['error_message'] = line.split('] ', 2)[-1].strip()
+
+            except Exception as e:
+                status['error_message'] = f"读取更新日志失败: {e}"
+
+        return status
+
+    @staticmethod
+    def clear_update_log():
+        """清除更新日志"""
+        log_file = os.path.join(tempfile.gettempdir(), 'update.log')
+        try:
+            if os.path.exists(log_file):
+                os.remove(log_file)
+        except Exception:
+            pass
 
 
 def get_current_version() -> str:

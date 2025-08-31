@@ -8,7 +8,9 @@ import requests
 import webbrowser
 from PIL import Image, ImageTk
 from io import BytesIO
-from tomato_novel_api import TomatoNovelAPI
+from novel_downloader import NovelDownloaderAPI
+from api_manager import api_manager
+import novel_downloader
 from ebooklib import epub
 from updater import AutoUpdater, get_current_version, check_and_notify_update
 from updater import is_official_release_build
@@ -61,15 +63,11 @@ class ModernNovelDownloaderGUI:
         
         # 配置文件路径
         self.config_file = "config.json"
-        
+
         # 加载配置
         self.config = self.load_config()
         
-        # 应用主题配置
-        saved_theme = self.config.get('theme_color')
-        if saved_theme and saved_theme != self.colors['primary']:
-            self.colors['primary'] = saved_theme
-            self.colors['primary_dark'] = saved_theme
+
         
         # 设置字体
         self.setup_fonts()
@@ -82,10 +80,14 @@ class ModernNovelDownloaderGUI:
         
         # 检查已有的验证状态
         self.check_existing_verification()
-        
+
         # 启动时自动检查更新（仅官方构建）
         if self.official_build and self.config.get('auto_check_update', True):
             self.root.after(1500, self.check_update_silent)
+
+        # GUI初始化完成后获取API列表（延迟执行，确保GUI已完全显示）
+        # 在GUI启动完成后要求验证码验证并获取API
+        self.root.after(1000, self._require_captcha_verification_at_startup)
     
     def setup_fonts(self):
         """设置字体"""
@@ -172,6 +174,42 @@ class ModernNovelDownloaderGUI:
         self.settings_frame = ttk.Frame(self.notebook, style='Card.TFrame')
         self.notebook.add(self.settings_frame, text="⚙️ 设置")
         self.create_settings_tab()
+    
+    def create_card(self, parent, title: str):
+        """创建通用卡片容器，带标题栏和内边距，返回内容容器"""
+        card_outer = tk.Frame(parent, bg=self.colors['surface'], highlightthickness=1, highlightbackground=self.colors['border'])
+        card_outer.pack(fill=tk.X, expand=False, pady=(0, 12))
+
+        # 标题栏
+        title_bar = tk.Frame(card_outer, bg=self.colors['surface'])
+        title_bar.pack(fill=tk.X, padx=14, pady=(10, 6))
+        tk.Label(title_bar,
+                 text=title,
+                 font=self.fonts['subtitle'],
+                 bg=self.colors['surface'],
+                 fg=self.colors['text_primary']).pack(side=tk.LEFT)
+
+        # 内容容器
+        content_frame = tk.Frame(card_outer, bg=self.colors['surface'])
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 14))
+        return content_frame
+
+    def create_button(self, parent, text: str, command, color: str):
+        """创建统一风格按钮"""
+        btn = tk.Button(parent,
+                        text=text,
+                        font=self.fonts['button'],
+                        bg=color,
+                        fg='white',
+                        activebackground=color,
+                        activeforeground='white',
+                        relief=tk.FLAT,
+                        bd=0,
+                        padx=12,
+                        pady=6,
+                        cursor='hand2',
+                        command=command)
+        return btn
     
     def create_download_tab(self):
         """创建下载标签页"""
@@ -352,50 +390,6 @@ class ModernNovelDownloaderGUI:
         main_container = tk.Frame(self.settings_frame, bg=self.colors['surface'])
         main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
-        # 应用设置卡片
-        app_card = self.create_card(main_container, "⚙️ 应用设置")
-        
-        # 主题设置
-        theme_frame = tk.Frame(app_card, bg=self.colors['surface'])
-        theme_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        tk.Label(theme_frame, text="主题色彩:", 
-                font=self.fonts['body'], 
-                bg=self.colors['surface'], 
-                fg=self.colors['text_primary']).pack(side=tk.LEFT)
-        
-        # 主题选择按钮
-        theme_buttons_frame = tk.Frame(theme_frame, bg=self.colors['surface'])
-        theme_buttons_frame.pack(side=tk.LEFT, padx=(20, 0))
-        
-        themes = [
-            ("🔵 蓝色", self.colors['primary']),
-            ("🔴 红色", '#F44336'),
-            ("🟢 绿色", '#4CAF50'),
-            ("🟡 橙色", '#FF9800')
-        ]
-        
-        for theme_name, color in themes:
-            theme_btn = tk.Button(theme_buttons_frame,
-                                 text=theme_name,
-                                 font=self.fonts['small'],
-                                 bg=color,
-                                 fg='white',
-                                 relief=tk.FLAT,
-                                 bd=0,
-                                 padx=10,
-                                 pady=5,
-                                 cursor='hand2',
-                                 command=lambda c=color: self.change_theme(c))
-            theme_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
-        # 恢复默认蓝色主题按钮
-        reset_theme_btn = self.create_button(theme_frame,
-                                           "↺ 恢复默认",
-                                           lambda: self.change_theme('#1976D2'),
-                                           self.colors['primary'])
-        reset_theme_btn.pack(side=tk.RIGHT)
-        
         # 验证设置卡片
         verification_card = self.create_card(main_container, "🔒 人机验证")
         
@@ -404,11 +398,14 @@ class ModernNovelDownloaderGUI:
         verification_status_frame.pack(fill=tk.X, pady=(0, 10))
         
         self.verification_status_label = tk.Label(verification_status_frame, 
-                                                 text="状态: 未验证 (如遇到403/401错误时需要验证)", 
+                                                 text="状态: 检查中...", 
                                                  font=self.fonts['body'],
                                                  bg=self.colors['surface'],
                                                  fg=self.colors['text_secondary'])
         self.verification_status_label.pack(anchor='w')
+        
+        # 立即更新验证状态
+        self.check_existing_verification()
         
         # 验证按钮
         verification_buttons_frame = tk.Frame(verification_card, bg=self.colors['surface'])
@@ -425,6 +422,13 @@ class ModernNovelDownloaderGUI:
                                            self.clear_verification_token,
                                            self.colors['error'])
         clear_token_btn.pack(side=tk.LEFT)
+        
+        # API管理按钮
+        api_manage_btn = self.create_button(verification_buttons_frame, 
+                                          "🔧 API管理", 
+                                          self.show_api_management,
+                                          self.colors['primary'])
+        api_manage_btn.pack(side=tk.LEFT, padx=(10, 0))
         
         # 版本信息卡片
         version_card = self.create_card(main_container, "📦 版本信息")
@@ -515,7 +519,6 @@ class ModernNovelDownloaderGUI:
                 # 返回默认配置
                 return {
                     'save_path': os.getcwd(),
-                    'theme_color': self.colors['primary'],
                     'file_format': 'txt',
                     'download_mode': 'full',
                     'auto_check_update': True
@@ -524,7 +527,6 @@ class ModernNovelDownloaderGUI:
             print(f"加载配置失败: {e}")
             return {
                 'save_path': os.getcwd(),
-                'theme_color': self.colors['primary'],
                 'file_format': 'txt',
                 'download_mode': 'full',
                 'auto_check_update': True
@@ -535,7 +537,6 @@ class ModernNovelDownloaderGUI:
         try:
             config = {
                 'save_path': self.save_path_entry.get() if hasattr(self, 'save_path_entry') else os.getcwd(),
-                'theme_color': self.colors['primary'],
                 'file_format': self.format_var.get() if hasattr(self, 'format_var') else 'txt',
                 'download_mode': self.mode_var.get() if hasattr(self, 'mode_var') else 'full',
                 'auto_check_update': self.auto_update_var.get() if hasattr(self, 'auto_update_var') else True
@@ -550,13 +551,7 @@ class ModernNovelDownloaderGUI:
     
     # ========== 事件处理方法 ==========
     
-    def change_theme(self, color):
-        """更改主题色彩"""
-        self.colors['primary'] = color
-        self.colors['primary_dark'] = color  # 简化处理
-        # 保存配置
-        self.save_config()
-        messagebox.showinfo("主题更改", "主题色彩已更改并保存，重启应用后生效")
+
     
     
     def search_novels(self):
@@ -924,7 +919,7 @@ class ModernNovelDownloaderGUI:
                                 pady=5,
                                 cursor='hand2',
                                 command=lambda n=novel: self.download_selected_novel(n))
-        download_btn.pack(side=tk.LEFT)
+        download_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         # 标签信息（如果有）
         tags = novel.get('tags', '')
@@ -1385,30 +1380,65 @@ class ModernNovelDownloaderGUI:
     
     def progress_callback(self, progress, message):
         """进度回调"""
-        # 更新进度条
-        if progress >= 0:
-            self.progress['value'] = progress
-            
-            # 计算剩余时间
-            if self.start_time and progress > 0 and progress < 100:
-                elapsed_time = time.time() - self.start_time
-                estimated_total_time = elapsed_time * 100 / progress
-                remaining_time = estimated_total_time - elapsed_time
-                remaining_str = self.format_time(remaining_time)
-                progress_info_text = f"进度: {progress}% (预计剩余时间: {remaining_str})"
-            elif progress == 100:
-                elapsed_time = time.time() - self.start_time
-                elapsed_str = self.format_time(elapsed_time)
-                progress_info_text = f"下载完成! 总耗时: {elapsed_str}"
-            else:
-                progress_info_text = f"进度: {progress}%" if progress >= 0 else "处理中..."
-                
-            self.progress_info.config(text=progress_info_text)
-        
-        self.status_label.config(text=message)
-        self.log(f"{message}")
-        self.root.update()
+        try:
+            # 更新进度条
+            if progress >= 0:
+                self.progress['value'] = progress
+
+                # 计算剩余时间
+                if self.start_time and progress > 0 and progress < 100:
+                    elapsed_time = time.time() - self.start_time
+                    estimated_total_time = elapsed_time * 100 / progress
+                    remaining_time = estimated_total_time - elapsed_time
+                    remaining_str = self.format_time(remaining_time)
+                    progress_info_text = f"进度: {progress}% (预计剩余时间: {remaining_str})"
+                elif progress == 100:
+                    elapsed_time = time.time() - self.start_time
+                    elapsed_str = self.format_time(elapsed_time)
+                    progress_info_text = f"下载完成! 总耗时: {elapsed_str}"
+                else:
+                    progress_info_text = f"进度: {progress}%" if progress >= 0 else "处理中..."
+
+                self.progress_info.config(text=progress_info_text)
+
+            # 更新状态标签
+            self.status_label.config(text=message)
+
+            # 检测下载完成消息，自动清理chapter.json文件
+            if progress == 100 or ("下载完成" in message and "失败" not in message):
+                self._auto_cleanup_chapter_json()
+
+            # 只有在非递归情况下才记录日志，避免递归调用
+            if not hasattr(self, '_in_progress_callback'):
+                self._in_progress_callback = True
+                try:
+                    # 只记录重要消息，避免过多日志
+                    if progress < 0 or progress in [0, 25, 50, 75, 100] or "完成" in message or "失败" in message:
+                        self.log(f"{message}")
+                finally:
+                    delattr(self, '_in_progress_callback')
+
+            self.root.update_idletasks()  # 使用update_idletasks避免递归
+
+        except Exception as e:
+            # 静默处理异常，避免递归错误
+            pass
     
+    def _auto_cleanup_chapter_json(self):
+        """自动清理chapter.json文件"""
+        try:
+            save_path = self.save_path_entry.get().strip()
+            if not save_path or not os.path.isdir(save_path):
+                return
+                
+            chapter_json_path = os.path.join(save_path, "chapter.json")
+            if os.path.exists(chapter_json_path):
+                os.remove(chapter_json_path)
+                self.log("已自动清理下载状态文件: chapter.json")
+        except Exception as e:
+            # 静默处理，避免影响用户体验
+            pass
+
     def clear_settings(self):
         """清理设置文件"""
         try:
@@ -1465,10 +1495,22 @@ class ModernNovelDownloaderGUI:
     def _download_thread(self, book_id, save_path, file_format, mode):
         """下载线程函数 - 完全集成enhanced_downloader.py的高速下载功能"""
         try:
-            # 确保API已初始化
+            # 检查API接口是否已经获取
+            if not novel_downloader.CONFIG["api_endpoints"]:
+                # API列表为空，可能验证失败或未验证
+                self.root.after(0, lambda: messagebox.showerror(
+                    "API未验证",
+                    "API接口列表为空，可能启动时验证失败。\n\n"
+                    "请重新启动程序并完成验证码验证，\n"
+                    "或在设置中手动进行验证。"
+                ))
+                return
+                
+            # 确保API实例存在
             if self.api is None:
+                self.log("API实例不存在，正在重新创建...")
                 self.initialize_api()
-            
+
             # 设置进度回调
             def gui_progress_callback(progress, message):
                 """GUI进度回调，将下载器的回调转发到GUI"""
@@ -1513,21 +1555,17 @@ class ModernNovelDownloaderGUI:
                 
                 # 直接使用增强型下载器的run_download方法
                 downloader = self.api.enhanced_downloader
-                downloader.progress_callback = gui_progress_callback
-                
+                downloader.set_progress_callback(gui_progress_callback)
+
                 # 在线程中运行下载，传递GUI验证回调
-                downloader.run_download(book_id, save_path, file_format, gui_callback=self.api.gui_verification_callback)
+                downloader.run_download(book_id, save_path, file_format)
                 
                 # 检查是否取消
                 if downloader.is_cancelled:
                     self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
                     return
                 
-                # 获取保存的文件路径
-                filename = f"{book_name}.{file_format}"
-                filepath = os.path.join(save_path, filename)
-                
-                self.root.after(0, lambda path=filepath: self.progress_callback(100, f"高速下载完成！文件已保存到: {path}"))
+                # 完成消息由下载器内部处理，不需要在这里重复发送
                 
             else:
                 # 章节下载模式
@@ -1566,8 +1604,8 @@ class ModernNovelDownloaderGUI:
                 
                 # 使用增强型下载器的范围下载功能
                 downloader = self.api.enhanced_downloader
-                downloader.progress_callback = gui_progress_callback
-                
+                downloader.set_progress_callback(gui_progress_callback)
+
                 # 在线程中运行下载
                 downloader.run_download(book_id, save_path, file_format, start_idx, end_idx)
                 
@@ -1576,11 +1614,7 @@ class ModernNovelDownloaderGUI:
                     self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
                     return
                 
-                # 获取保存的文件路径
-                filename = f"{book_name}_第{start_idx+1}-{end_idx+1}章.{file_format}"
-                filepath = os.path.join(save_path, filename)
-                
-                self.root.after(0, lambda path=filepath: self.progress_callback(100, f"章节高速下载完成！文件已保存到: {path}"))
+                # 完成消息由下载器内部处理，不需要在这里重复发送
                 
         except Exception as e:
             error_msg = str(e)
@@ -1984,6 +2018,8 @@ class ModernNovelDownloaderGUI:
         """下载完成后的清理工作"""
         self.is_downloading = False
         self.download_btn.config(state=tk.NORMAL, bg=self.colors['success'], text="🚀 开始下载")
+        # 确保下载完成后清理状态文件
+        self._auto_cleanup_chapter_json()
     
     def initialize_api(self):
         """初始化API，只在需要时调用"""
@@ -1991,33 +2027,322 @@ class ModernNovelDownloaderGUI:
             # 创建GUI验证码处理回调
             def gui_verification_callback(captcha_url):
                 """在GUI中处理验证码输入"""
-                # 创建一个临时变量存储结果
                 result = {'token': None}
-                
-                # 创建一个事件等待对话框完成
-                import threading
                 event = threading.Event()
-                
-                def show_dialog():
-                    try:
-                        # 创建验证码对话框
-                        self._create_captcha_dialog_for_api(captcha_url, result, event)
-                    except Exception as e:
-                        print(f"Error showing captcha dialog: {e}")
-                        event.set()
-                
-                # 在主线程中显示对话框
+
+                def show_dialog_and_wait():
+                    dialog = self._create_captcha_dialog_for_api(captcha_url, result, event)
+                    if dialog:
+                        # 使对话框成为模态窗口并等待
+                        dialog.grab_set()
+                        self.root.wait_window(dialog)
+
                 if threading.current_thread() is threading.main_thread():
-                    show_dialog()
+                    show_dialog_and_wait()
                 else:
-                    self.root.after(0, show_dialog)
-                    event.wait(timeout=300)  # 等待5分钟
-                
-                return result.get('token', '')
-            
+                    self.root.after(0, show_dialog_and_wait)
+                    event.wait(timeout=300)
+
+                return result.get('token')
+
             # 创建API实例，传入GUI回调
-            self.api = TomatoNovelAPI(gui_verification_callback)
+            self.api = NovelDownloaderAPI(gui_verification_callback)
+
+            # 注意：不在这里调用预加载，避免重复触发验证
+
         return self.api
+
+    def _require_captcha_verification_at_startup(self):
+        """在启动时要求验证码验证并获取API列表"""
+        try:
+            self.log("程序启动完成，准备进行API验证...")
+            
+            # 先检查是否有保存的API
+            saved_api_data = api_manager.load_apis()
+            if saved_api_data:
+                # 有保存的API，询问用户选择
+                self._show_api_selection_dialog(saved_api_data)
+                return
+            
+            # 没有保存的API，进行网络验证
+            self._perform_network_verification()
+            
+        except Exception as e:
+            self.log(f"启动验证失败: {str(e)}")
+            messagebox.showerror("启动错误", f"启动验证失败: {str(e)}")
+    
+    def _show_api_selection_dialog(self, saved_api_data):
+        """显示API选择对话框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("API选择")
+        dialog.geometry("500x400")
+        dialog.configure(bg=self.colors['background'])
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.geometry("+%d+%d" % (
+            self.root.winfo_rootx() + 50,
+            self.root.winfo_rooty() + 50
+        ))
+        
+        result = {'choice': None}
+        
+        # 标题
+        title_label = tk.Label(dialog, 
+                             text="发现保存的API配置",
+                             font=self.fonts['subtitle'],
+                             bg=self.colors['background'],
+                             fg=self.colors['text_primary'])
+        title_label.pack(pady=20)
+        
+        # API信息显示
+        update_info = api_manager.get_last_update_info()
+        if update_info:
+            update_time = api_manager.format_update_time(update_info['last_update'])
+            api_count = update_info['api_count']
+            batch_enabled = update_info['batch_enabled']
+            
+            info_text = f"""发现保存的API配置：
+
+API数量: {api_count}个
+批量下载: {'启用' if batch_enabled else '禁用'}
+更新时间: {update_time}
+
+请选择操作："""
+        else:
+            info_text = """发现保存的API配置：
+
+请选择操作："""
+        
+        info_label = tk.Label(dialog, 
+                            text=info_text,
+                            font=self.fonts['body'],
+                            bg=self.colors['background'],
+                            fg=self.colors['text_secondary'],
+                            justify=tk.LEFT)
+        info_label.pack(pady=20)
+        
+        # 按钮框架
+        button_frame = tk.Frame(dialog, bg=self.colors['background'])
+        button_frame.pack(pady=30)
+        
+        def use_saved():
+            result['choice'] = 'use_saved'
+            dialog.destroy()
+        
+        def update_api():
+            result['choice'] = 'update'
+            dialog.destroy()
+        
+        def clear_and_update():
+            result['choice'] = 'clear_and_update'
+            dialog.destroy()
+        
+        # 使用保存的API
+        use_btn = self.create_button(button_frame, "使用保存的API", use_saved, self.colors['success'])
+        use_btn.pack(pady=5)
+        
+        # 更新API
+        update_btn = self.create_button(button_frame, "更新API", update_api, self.colors['primary'])
+        update_btn.pack(pady=5)
+        
+        # 清除并更新
+        clear_btn = self.create_button(button_frame, "清除并重新获取", clear_and_update, self.colors['warning'])
+        clear_btn.pack(pady=5)
+        
+        # 等待用户选择
+        dialog.wait_window()
+        
+        # 处理用户选择
+        if result['choice'] == 'use_saved':
+            self.log("用户选择使用保存的API")
+            api_manager.apply_saved_apis(saved_api_data)
+            self.log("已应用保存的API配置")
+        elif result['choice'] == 'update':
+            self.log("用户选择更新API")
+            self._perform_network_verification()
+        elif result['choice'] == 'clear_and_update':
+            self.log("用户选择清除并重新获取API")
+            api_manager.clear_saved_apis()
+            self._perform_network_verification()
+        else:
+            self.log("用户取消选择，使用保存的API")
+            api_manager.apply_saved_apis(saved_api_data)
+    
+    def _perform_network_verification(self):
+        """执行网络验证"""
+        try:
+            # 先检查网络连接
+            self.log("检查网络连接...")
+            try:
+                import requests
+                test_response = requests.get("https://www.baidu.com", timeout=5)
+                if test_response.status_code == 200:
+                    self.log("网络连接正常")
+                else:
+                    self.log(f"网络连接异常，状态码: {test_response.status_code}")
+            except Exception as net_e:
+                self.log(f"网络连接测试失败: {str(net_e)}")
+                messagebox.showerror(
+                    "网络连接问题",
+                    f"网络连接测试失败: {str(net_e)}\n\n"
+                    "请检查网络连接后重启程序。"
+                )
+                return
+            
+            # 显示欢迎信息和验证要求
+            welcome_msg = (
+                "欢迎使用番茄小说下载器！\n\n"
+                "为了正常使用下载功能，需要先进行人机验证。\n"
+                "验证成功后，API接口将保存到内存中供下载使用。\n\n"
+                "点击确定开始验证"
+            )
+            
+            # 提供跳过选项
+            custom_dialog = tk.Toplevel(self.root)
+            custom_dialog.title("验证码验证")
+            custom_dialog.geometry("400x300")
+            custom_dialog.configure(bg=self.colors['background'])
+            custom_dialog.resizable(False, False)
+            custom_dialog.transient(self.root)
+            custom_dialog.grab_set()
+            
+            # 居中显示
+            custom_dialog.geometry("+%d+%d" % (
+                self.root.winfo_rootx() + 50,
+                self.root.winfo_rooty() + 50
+            ))
+            
+            result_var = tk.StringVar(value="")
+            
+            # 标题
+            title_label = tk.Label(custom_dialog, 
+                                 text="欢迎使用番茄小说下载器！",
+                                 font=self.fonts['subtitle'],
+                                 bg=self.colors['background'],
+                                 fg=self.colors['text_primary'])
+            title_label.pack(pady=20)
+            
+            # 说明文本
+            info_text = tk.Text(custom_dialog, 
+                              height=6, width=45,
+                              bg=self.colors['surface'],
+                              fg=self.colors['text_primary'],
+                              font=self.fonts['body'],
+                              wrap=tk.WORD,
+                              relief=tk.FLAT)
+            info_text.pack(pady=10, padx=20)
+            
+            info_content = (
+                "为了正常使用下载功能，建议先进行人机验证。\n"
+                "验证成功后，API接口将保存到内存中供下载使用。\n\n"
+                "如果当前网络环境无法连接验证服务器，\n"
+                "您也可以选择跳过验证，稍后在设置中手动验证。"
+            )
+            info_text.insert(tk.END, info_content)
+            info_text.config(state=tk.DISABLED)
+            
+            # 按钮框架
+            button_frame = tk.Frame(custom_dialog, bg=self.colors['background'])
+            button_frame.pack(pady=20)
+            
+            def verify_now():
+                result_var.set("verify")
+                custom_dialog.destroy()
+                
+            def skip_verification():
+                result_var.set("skip")
+                custom_dialog.destroy()
+                
+            def cancel_startup():
+                result_var.set("cancel")
+                custom_dialog.destroy()
+            
+            verify_btn = self.create_button(button_frame, "🔒 开始验证", verify_now, self.colors['primary'])
+            verify_btn.pack(side=tk.LEFT, padx=5)
+            
+            skip_btn = self.create_button(button_frame, "⏭️ 跳过验证", skip_verification, self.colors['warning'])
+            skip_btn.pack(side=tk.LEFT, padx=5)
+            
+            cancel_btn = self.create_button(button_frame, "❌ 取消", cancel_startup, self.colors['error'])
+            cancel_btn.pack(side=tk.LEFT, padx=5)
+            
+            # 等待用户选择
+            self.root.wait_window(custom_dialog)
+            user_choice = result_var.get()
+            
+            if user_choice == "cancel":
+                self.log("用户取消启动")
+                self.root.quit()
+                return
+            elif user_choice == "skip":
+                self.log("用户跳过验证")
+                messagebox.showinfo(
+                    "验证已跳过",
+                    "已跳过启动验证。\n\n"
+                    "如需下载功能，请稍后在设置中手动进行验证。"
+                )
+                return
+            # user_choice == "verify" 继续验证流程
+            
+            # 确保API实例已创建
+            if self.api is None:
+                self.log("创建API实例...")
+                if self.initialize_api() is None:
+                    self.log("API实例创建失败")
+                    messagebox.showerror(
+                        "初始化失败",
+                        "无法创建API实例，请检查网络连接后重启程序。"
+                    )
+                    return
+
+            # 强制进行API初始化（这会触发验证码验证）
+            self.log("开始验证码验证流程...")
+            self.log("正在连接服务器获取验证码挑战...")
+            
+            if self.api.initialize_api():
+                self.log("验证码验证成功！API接口已保存到内存")
+                import novel_downloader
+                api_count = len(novel_downloader.CONFIG["api_endpoints"])
+                messagebox.showinfo(
+                    "验证成功", 
+                    f"验证码验证成功！\n已获取{api_count}个API接口并保存到内存。\n现在可以正常使用下载功能了。"
+                )
+            else:
+                self.log("验证码验证失败")
+                messagebox.showerror(
+                    "验证失败",
+                    "验证码验证失败。可能的原因：\n"
+                    "1. 网络连接不稳定\n"
+                    "2. 服务器暂时无法访问\n"
+                    "3. 验证码输入错误或过期\n\n"
+                    "解决方案：\n"
+                    "• 检查网络连接后重启程序重试\n"
+                    "• 在设置中手动进行验证\n"
+                    "• 联系开发者获取帮助"
+                )
+
+        except Exception as e:
+            error_msg = str(e)
+            self.log(f"启动验证异常: {error_msg}")
+            messagebox.showerror(
+                "启动验证错误",
+                f"启动时验证过程出现异常：\n{error_msg}\n\n"
+                "解决方案：\n"
+                "• 重启程序重试\n"
+                "• 在设置中手动进行验证\n"
+                "• 检查网络连接和防火墙设置"
+            )
+
+    def _preload_api_at_startup(self):
+        """保留原方法以保持兼容性（已弃用，现在使用_require_captcha_verification_at_startup）"""
+        self._require_captcha_verification_at_startup()
+
+    def _preload_api_in_background(self):
+        """保留原方法以保持兼容性，现在调用新的方法"""
+        self._preload_api_at_startup()
     
     def check_and_handle_api_error(self, error_message=""):
         """检查API错误并提供解决方案"""
@@ -2077,10 +2402,10 @@ class ModernNovelDownloaderGUI:
         except Exception as e:
             messagebox.showerror("验证码获取失败", f"获取验证码时出错: {str(e)}")
     
-    def _create_captcha_dialog_for_api(self, verification_url, result, event):
+    def _create_captcha_dialog_for_api(self, verification_url, result_container, event):
         """为API初始化创建验证码对话框"""
         dialog = tk.Toplevel(self.root)
-        dialog.title("🔒 API初始化需要验证")
+        dialog.title("API初始化需要验证")
         dialog.geometry("600x450")
         dialog.resizable(False, False)
         dialog.transient(self.root)
@@ -2178,22 +2503,26 @@ class ModernNovelDownloaderGUI:
         
         def confirm_verification():
             token = token_entry.get().strip()
-            if not token:
-                messagebox.showwarning("输入错误", "请输入验证令牌")
-                return
-            
-            # 保存token到环境变量
-            os.environ["TOMATO_VERIFICATION_TOKEN"] = token
-            result['token'] = token
-            dialog.destroy()
-            event.set()
-            messagebox.showinfo("验证成功", "🎉 验证令牌已保存，API初始化继续...")
+            if token:
+                # 保存token到环境变量（仅本次会话有效）
+                os.environ["TOMATO_VERIFICATION_TOKEN"] = token
+                result_container['token'] = token
+                if event:
+                    event.set()
+                # 在销毁对话框之前弹出提示，并以根窗口为父级，避免已销毁窗口作为父级导致的错误
+                try:
+                    messagebox.showinfo("验证成功", "🎉 验证令牌已保存，API初始化继续...", parent=self.root)
+                except Exception:
+                    messagebox.showinfo("验证成功", "🎉 验证令牌已保存，API初始化继续...")
+                dialog.destroy()
+            else:
+                messagebox.showwarning("提示", "请输入验证令牌", parent=dialog)
         
         def skip_verification():
-            result['token'] = ''
+            result_container['token'] = '' # 空令牌表示跳过
             dialog.destroy()
-            event.set()
-            messagebox.showwarning("跳过验证", "跳过验证可能导致部分下载功能不可用")
+            if event:
+                event.set()
         
         confirm_btn = self.create_button(button_frame,
                                         "✅ 确认验证",
@@ -2212,14 +2541,17 @@ class ModernNovelDownloaderGUI:
         
         # 窗口关闭处理
         def on_close():
-            result['token'] = ''
+            result_container['token'] = None # None表示取消
             dialog.destroy()
-            event.set()
+            if event:
+                event.set()
         
         dialog.protocol("WM_DELETE_WINDOW", on_close)
         
         # 设置焦点
         token_entry.focus_set()
+        
+        return dialog
     
     def _create_captcha_dialog(self, verification_url):
         """创建验证码对话框（用于手动验证）"""
@@ -2329,10 +2661,10 @@ class ModernNovelDownloaderGUI:
             if not token:
                 messagebox.showwarning("输入错误", "请输入验证令牌")
                 return
-            
-            # 保存验证令牌到环境变量
+
+            # 保存验证令牌到环境变量（仅本次会话有效）
             os.environ["TOMATO_VERIFICATION_TOKEN"] = token
-            
+
             # 测试验证令牌是否有效
             self._test_verification_token(token, dialog)
         
@@ -2414,21 +2746,75 @@ class ModernNovelDownloaderGUI:
         messagebox.showerror("验证失败", "验证令牌无效或已过期，请重新获取。")
     
     def manual_verification(self):
-        """手动进行验证"""
-        self.show_captcha_dialog()
+        """手动进行验证并获取API接口"""
+        try:
+            # 提示用户即将进行验证
+            result = messagebox.askquestion(
+                "手动验证",
+                "即将进行验证码验证并获取API接口。\n\n是否继续？",
+                icon='question'
+            )
+            
+            if result != 'yes':
+                return
+                
+            # 确保API实例存在
+            if self.api is None:
+                self.initialize_api()
+                
+            if self.api is None:
+                messagebox.showerror("错误", "无法创建API实例")
+                return
+            
+            # 强制重新获取API接口
+            import novel_downloader
+            novel_downloader.CONFIG["api_endpoints"] = []  # 清空现有接口
+            
+            # 进行验证和API获取
+            self.update_verification_status("正在验证...", self.colors['warning'])
+            
+            if self.api.initialize_api():
+                # 验证成功，更新状态
+                api_count = len(novel_downloader.CONFIG["api_endpoints"])
+                self.update_verification_status(f"验证成功 ✓ (已获取{api_count}个API接口)", self.colors['success'])
+                messagebox.showinfo(
+                    "验证成功",
+                    f"验证码验证成功！\n已获取{api_count}个API接口。\n现在可以正常使用下载功能了。"
+                )
+            else:
+                self.update_verification_status("验证失败", self.colors['error'])
+                messagebox.showerror("验证失败", "验证码验证失败，请重试。")
+                
+        except Exception as e:
+            error_msg = str(e)
+            self.update_verification_status("验证异常", self.colors['error'])
+            messagebox.showerror("验证异常", f"验证过程出现异常：{error_msg}")
     
     def clear_verification_token(self):
-        """清除验证令牌"""
+        """清除验证令牌和API接口"""
         try:
+            result = messagebox.askquestion(
+                "清除验证",
+                "确定要清除验证令牌和API接口吗？\n清除后需要重新验证才能下载。",
+                icon='warning'
+            )
+            
+            if result != 'yes':
+                return
+                
             # 清除环境变量中的验证令牌
             if "TOMATO_VERIFICATION_TOKEN" in os.environ:
                 del os.environ["TOMATO_VERIFICATION_TOKEN"]
-            
+                
+            # 清除内存中的API接口
+            import novel_downloader
+            novel_downloader.CONFIG["api_endpoints"] = []
+
             # 更新状态显示
-            self.update_verification_status("已清除验证令牌")
-            messagebox.showinfo("清除成功", "验证令牌已清除")
+            self.update_verification_status("已清除验证令牌和API接口", self.colors['text_secondary'])
+            messagebox.showinfo("清除成功", "验证令牌和API接口已清除\n需要重新验证才能下载")
         except Exception as e:
-            messagebox.showerror("清除失败", f"清除验证令牌失败: {str(e)}")
+            messagebox.showerror("清除失败", f"清除失败: {str(e)}")
     
     def update_verification_status(self, status_text, color=None):
         """更新验证状态显示"""
@@ -2437,13 +2823,144 @@ class ModernNovelDownloaderGUI:
                 color = self.colors['text_secondary']
             self.verification_status_label.config(text=f"状态: {status_text}", fg=color)
     
+    def show_api_management(self):
+        """显示API管理对话框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("API管理")
+        dialog.geometry("600x500")
+        dialog.configure(bg=self.colors['background'])
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.geometry("+%d+%d" % (
+            self.root.winfo_rootx() + 50,
+            self.root.winfo_rooty() + 50
+        ))
+        
+        # 标题
+        title_label = tk.Label(dialog, 
+                             text="API管理",
+                             font=self.fonts['subtitle'],
+                             bg=self.colors['background'],
+                             fg=self.colors['text_primary'])
+        title_label.pack(pady=20)
+        
+        # 当前API状态
+        current_api_count = len(novel_downloader.CONFIG["api_endpoints"])
+        batch_enabled = novel_downloader.CONFIG["batch_config"]["enabled"]
+        
+        status_text = f"""当前API状态:
+API数量: {current_api_count}个
+批量下载: {'启用' if batch_enabled else '禁用'}"""
+        
+        status_label = tk.Label(dialog, 
+                              text=status_text,
+                              font=self.fonts['body'],
+                              bg=self.colors['background'],
+                              fg=self.colors['text_secondary'],
+                              justify=tk.LEFT)
+        status_label.pack(pady=10)
+        
+        # 保存的API信息
+        saved_api_data = api_manager.load_apis()
+        if saved_api_data:
+            update_info = api_manager.get_last_update_info()
+            if update_info:
+                update_time = api_manager.format_update_time(update_info['last_update'])
+                saved_api_count = update_info['api_count']
+                saved_batch_enabled = update_info['batch_enabled']
+                
+                saved_text = f"""保存的API信息:
+API数量: {saved_api_count}个
+批量下载: {'启用' if saved_batch_enabled else '禁用'}
+更新时间: {update_time}"""
+            else:
+                saved_text = "保存的API信息: 可用"
+        else:
+            saved_text = "保存的API信息: 无"
+        
+        saved_label = tk.Label(dialog, 
+                             text=saved_text,
+                             font=self.fonts['body'],
+                             bg=self.colors['background'],
+                             fg=self.colors['text_secondary'],
+                             justify=tk.LEFT)
+        saved_label.pack(pady=10)
+        
+        # 操作按钮框架
+        button_frame = tk.Frame(dialog, bg=self.colors['background'])
+        button_frame.pack(pady=30)
+        
+        def refresh_api():
+            dialog.destroy()
+            self._perform_network_verification()
+        
+        def apply_saved():
+            if saved_api_data:
+                api_manager.apply_saved_apis(saved_api_data)
+                messagebox.showinfo("成功", "已应用保存的API配置")
+                dialog.destroy()
+            else:
+                messagebox.showwarning("警告", "没有保存的API配置")
+        
+        def clear_saved():
+            if messagebox.askyesno("确认", "确定要清除保存的API配置吗？"):
+                api_manager.clear_saved_apis()
+                messagebox.showinfo("成功", "已清除保存的API配置")
+                dialog.destroy()
+        
+        def export_api():
+            if current_api_count > 0:
+                try:
+                    import json
+                    filename = f"api_backup_{int(time.time())}.json"
+                    backup_data = {
+                        "timestamp": time.time(),
+                        "api_endpoints": novel_downloader.CONFIG["api_endpoints"],
+                        "batch_config": novel_downloader.CONFIG["batch_config"]
+                    }
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        json.dump(backup_data, f, ensure_ascii=False, indent=2)
+                    messagebox.showinfo("成功", f"API配置已导出到: {filename}")
+                except Exception as e:
+                    messagebox.showerror("错误", f"导出失败: {str(e)}")
+            else:
+                messagebox.showwarning("警告", "当前没有可导出的API配置")
+        
+        # 刷新API
+        refresh_btn = self.create_button(button_frame, "🔄 刷新API", refresh_api, self.colors['primary'])
+        refresh_btn.pack(pady=5)
+        
+        # 应用保存的API
+        if saved_api_data:
+            apply_btn = self.create_button(button_frame, "📥 应用保存的API", apply_saved, self.colors['success'])
+            apply_btn.pack(pady=5)
+        
+        # 导出API
+        export_btn = self.create_button(button_frame, "📤 导出API配置", export_api, self.colors['secondary'])
+        export_btn.pack(pady=5)
+        
+        # 清除保存的API
+        clear_btn = self.create_button(button_frame, "🗑️ 清除保存的API", clear_saved, self.colors['error'])
+        clear_btn.pack(pady=5)
+    
+
+
     def check_existing_verification(self):
         """检查已有的验证状态"""
-        verification_token = os.environ.get("TOMATO_VERIFICATION_TOKEN")
-        if verification_token:
-            self.update_verification_status("已保存验证令牌 ✓", self.colors['success'])
+        # 检查API接口是否已获取
+        import novel_downloader
+        if novel_downloader.CONFIG["api_endpoints"]:
+            api_count = len(novel_downloader.CONFIG["api_endpoints"])
+            self.update_verification_status(f"已验证 ✓ (已获取{api_count}个API接口)", self.colors['success'])
         else:
-            self.update_verification_status("未验证 (如遇到403/401错误时需要验证)", self.colors['text_secondary'])
+            verification_token = os.environ.get("TOMATO_VERIFICATION_TOKEN")
+            if verification_token:
+                self.update_verification_status("已保存验证令牌但API接口未获取", self.colors['warning'])
+            else:
+                self.update_verification_status("未验证 (需要进行验证码验证)", self.colors['text_secondary'])
 
     def check_update_silent(self):
         """在后台静默检查更新"""
