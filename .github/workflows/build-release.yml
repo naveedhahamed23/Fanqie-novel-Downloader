@@ -35,29 +35,35 @@ jobs:
           # Windows 构建
           - os: windows-latest
             variant: release
-            executable: TomatoNovelDownloader.exe
+            executable: TomatoNovelDownloader
+            ext: .exe
             artifact_name: TomatoNovelDownloader-windows
           - os: windows-latest
             variant: debug
-            executable: TomatoNovelDownloader-debug.exe
+            executable: TomatoNovelDownloader-debug
+            ext: .exe
             artifact_name: TomatoNovelDownloader-debug-windows
           # Linux 构建
           - os: ubuntu-latest
             variant: release
             executable: TomatoNovelDownloader-linux
+            ext: ''
             artifact_name: TomatoNovelDownloader-linux
           - os: ubuntu-latest
             variant: debug
             executable: TomatoNovelDownloader-debug-linux
+            ext: ''
             artifact_name: TomatoNovelDownloader-debug-linux
           # macOS 构建
           - os: macos-latest
             variant: release
             executable: TomatoNovelDownloader-macos
+            ext: ''
             artifact_name: TomatoNovelDownloader-macos
           - os: macos-latest
             variant: debug
             executable: TomatoNovelDownloader-debug-macos
+            ext: ''
             artifact_name: TomatoNovelDownloader-debug-macos
 
     runs-on: ${{ matrix.os }}
@@ -76,12 +82,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk tk-dev
+          sudo apt-get install -y python3-tk tk-dev libheif1 libheif-dev
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install tcl-tk || true
+          brew install tcl-tk libheif || true
 
       - name: Update version.py
         run: |
@@ -117,7 +123,8 @@ jobs:
         run: |
           if [ "${{ matrix.variant }}" == "debug" ]; then
             # Debug版本 - 带控制台
-            pyinstaller --onefile --console --name=${{ matrix.executable }} \
+            NAME="${{ matrix.executable }}"; NAME="${NAME%.exe}"; pyinstaller --onefile --console --name="${NAME}" \
+
               --hidden-import=bs4 \
               --hidden-import=fake_useragent \
               --hidden-import=fake_useragent.data \
@@ -137,7 +144,8 @@ jobs:
               gui.py
           else
             # Release版本 - 窗口模式
-            pyinstaller --onefile --windowed --name=${{ matrix.executable }} \
+            NAME="${{ matrix.executable }}"; NAME="${NAME%.exe}"; pyinstaller --onefile --windowed --name="${NAME}" \
+
               --hidden-import=bs4 \
               --hidden-import=fake_useragent \
               --hidden-import=fake_useragent.data \
@@ -161,11 +169,12 @@ jobs:
       - name: Verify build
         run: |
           ls -la dist/
-          if [ -f "dist/${{ matrix.executable }}" ]; then
-            echo "✅ Build successful: ${{ matrix.executable }}"
-            echo "File size: $(ls -lh dist/${{ matrix.executable }} | awk '{print $5}')"
+          target="dist/${{ matrix.executable }}${{ matrix.ext }}"
+          if [ -f "$target" ]; then
+            echo "✅ Build successful: $(basename "$target")"
+            echo "File size: $(ls -lh "$target" | awk '{print $5}')"
           else
-            echo "❌ Build failed: ${{ matrix.executable }} not found"
+            echo "❌ Build failed: $(basename "$target") not found"
             exit 1
           fi
         shell: bash
@@ -174,7 +183,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.executable }}
+          path: dist/${{ matrix.executable }}${{ matrix.ext }}
           if-no-files-found: error
 
   release:
