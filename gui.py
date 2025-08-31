@@ -15,6 +15,9 @@ from ebooklib import epub
 from updater import AutoUpdater, get_current_version, check_and_notify_update
 from updater import is_official_release_build
 from version import __version__, __github_repo__
+import sys
+import platform
+import tempfile
 
 # 添加HEIC支持
 try:
@@ -2864,7 +2867,7 @@ API数量: {saved_api_count}个
     def _start_update(self, update_info):
         """开始更新（调用外部脚本处理所有更新操作）"""
         try:
-            log_message(f"开始更新到版本: {update_info.get('version', 'unknown')}")
+            self.log(f"开始更新到版本: {update_info.get('version', 'unknown')}")
 
             # 创建外部更新脚本
             self._create_external_update_script(update_info)
@@ -2879,7 +2882,7 @@ API数量: {saved_api_count}个
             sys.exit(0)
 
         except Exception as e:
-            log_message(f"启动外部更新程序失败: {e}")
+            self.log(f"启动外部更新程序失败: {e}")
             messagebox.showerror("更新失败", f"启动更新程序失败: {e}")
 
     def _create_external_update_script(self, update_info):
@@ -2927,10 +2930,10 @@ python3 "{external_script}" '{update_info_json}'
                 # 启动 shell 脚本
                 subprocess.Popen([shell_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-            log_message("外部更新脚本已启动")
+            self.log("外部更新脚本已启动")
 
         except Exception as e:
-            log_message(f"创建外部更新脚本失败: {e}")
+            self.log(f"创建外部更新脚本失败: {e}")
             raise
 
 
@@ -3015,11 +3018,7 @@ python3 "{external_script}" '{update_info_json}'
         # 由于更新现在由外部脚本完全处理，GUI不再需要响应这些事件
         # 只记录日志即可
         if event in ['download_error', 'install_error']:
-            log_message(f"更新事件: {event} - {data}", "WARNING")
-            try:
-                messagebox.showinfo("更新完成", "更新已安装，程序将重启")
-            except Exception:
-                pass
+            self.log(f"更新事件: {event} - {data}")
 
 # 主程序入口
 if __name__ == "__main__":
