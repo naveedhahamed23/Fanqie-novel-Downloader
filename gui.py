@@ -1534,21 +1534,21 @@ class ModernNovelDownloaderGUI:
             self.root.after(0, lambda: self.progress_callback(10, f"准备使用enhanced_downloader.py的高速下载《{book_name}》..."))
             
             # 整本下载 - 直接使用增强型下载器（移除章节下载模式）
-                self.root.after(0, lambda: self.progress_callback(15, f"启动enhanced_downloader.py高速下载模式..."))
-                
-                # 直接使用增强型下载器的run_download方法
-                downloader = self.api.enhanced_downloader
-                downloader.set_progress_callback(gui_progress_callback)
+            self.root.after(0, lambda: self.progress_callback(15, f"启动enhanced_downloader.py高速下载模式..."))
+            
+            # 直接使用增强型下载器的run_download方法
+            downloader = self.api.enhanced_downloader
+            downloader.set_progress_callback(gui_progress_callback)
 
-                # 在线程中运行下载，传递GUI验证回调
-                downloader.run_download(book_id, save_path, file_format)
-                
-                # 检查是否取消
-                if downloader.is_cancelled:
-                    self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
-                    return
-                
-                # 完成消息由下载器内部处理，不需要在这里重复发送
+            # 在线程中运行下载，传递GUI验证回调
+            downloader.run_download(book_id, save_path, file_format)
+            
+            # 检查是否取消
+            if downloader.is_cancelled:
+                self.root.after(0, lambda: self.progress_callback(0, "下载已取消"))
+                return
+            
+            # 完成消息由下载器内部处理，不需要在这里重复发送
                 
         except Exception as e:
             error_msg = str(e)
@@ -2935,10 +2935,6 @@ python3 "{external_script}" '{update_info_json}'
         except Exception as e:
             self.log(f"创建外部更新脚本失败: {e}")
             raise
-
-
-
-    
 
     def _cleanup_update_backups(self):
         """清理可能残留的更新备份文件"""
