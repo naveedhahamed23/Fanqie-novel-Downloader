@@ -2,9 +2,13 @@
 
 import os
 import sys
+from PyInstaller.utils.hooks import collect_data_files
 sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 
 block_cipher = None
+
+# 收集 fake_useragent 数据文件
+fake_useragent_datas = collect_data_files('fake_useragent')
 
 # 分析需要包含的模块
 a = Analysis(
@@ -15,10 +19,11 @@ a = Analysis(
     ],
     datas=[
         # ('version.py', '.'),  # Removed version.py file
-    ],
+    ] + fake_useragent_datas,
     hiddenimports=[
         'bs4',
         'fake_useragent',
+        'fake_useragent.data',
         'tqdm',
         'requests',
         'urllib3',

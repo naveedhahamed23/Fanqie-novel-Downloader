@@ -85,13 +85,26 @@ def make_request(url, headers=None, params=None, data=None, method='GET', verify
 
 def get_headers() -> Dict[str, str]:
     """生成随机请求头"""
-    browsers = ['chrome', 'edge']
-    browser = random.choice(browsers)
+    # 默认用户代理列表作为兜底
+    DEFAULT_USER_AGENTS = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
+    ]
+    
+    try:
+        # 尝试使用 fake_useragent
+        browsers = ['chrome', 'edge']
+        browser = random.choice(browsers)
 
-    if browser == 'chrome':
-        user_agent = UserAgent().chrome
-    else:
-        user_agent = UserAgent().edge
+        ua = UserAgent(cache=False, fallback=random.choice(DEFAULT_USER_AGENTS))
+        if browser == 'chrome':
+            user_agent = ua.chrome
+        else:
+            user_agent = ua.edge
+    except Exception:
+        # 如果 fake_useragent 失败，使用默认用户代理
+        user_agent = random.choice(DEFAULT_USER_AGENTS)
 
     return {
         "User-Agent": user_agent,
